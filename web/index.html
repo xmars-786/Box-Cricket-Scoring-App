@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Box Cricket Scoring App - Live scoring and stats">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Box Cricket">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Box Cricket - Live Scoring</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <style>
+    body { margin: 0; padding: 0; background-color: #0D1B2A; overflow: hidden; }
+    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: 'Inter', Arial, sans-serif; transition: opacity 0.4s ease; }
+    #loading h1 { color: white; font-size: 28px; margin: 0 0 8px 0; font-weight: 700; }
+    #loading p { color: rgba(255, 255, 255, 0.6); font-size: 14px; margin: 0 0 32px 0; }
+    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255, 255, 255, 0.15); border-top-color: #00C853; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <h1>🏏 Box Cricket</h1>
+    <p>Loading app...</p>
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    // Hide the loading overlay once Flutter has rendered
+    window.addEventListener('flutter-first-frame', function() {
+      var loading = document.getElementById('loading');
+      if (loading) {
+        loading.style.opacity = '0';
+        setTimeout(function() { loading.remove(); }, 400);
+      }
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

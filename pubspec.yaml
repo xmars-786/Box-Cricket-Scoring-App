@@ -1,0 +1,50 @@
+name: box_cricket
+description: A Box Cricket Scoring App with real-time updates, similar to Cricbuzz.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Firebase
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.4.1
+  cloud_firestore: ^5.6.1
+
+  # State Management
+  get: ^4.6.6
+
+  # Utilities
+  intl: ^0.19.0
+  uuid: ^4.5.1
+  share_plus: ^10.1.4
+  connectivity_plus: ^6.1.1
+  shared_preferences: ^2.3.4
+  google_fonts: ^6.2.1
+  shimmer: ^3.0.0
+  image_picker: ^1.2.1
+  http: ^1.6.0
+  flutter_staggered_grid_view: ^0.7.0
+  lottie: ^3.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/lottie/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"

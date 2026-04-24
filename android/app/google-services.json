@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "82559395274",
+    "project_id": "boxcricketapp-e9a33",
+    "storage_bucket": "boxcricketapp-e9a33.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:82559395274:android:5715b79c7ce85b1410db33",
+        "android_client_info": {
+          "package_name": "com.boxcricket.box_cricket"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD23DrIaIO-dkB94nlZzbPNqwaAHi_E3O4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

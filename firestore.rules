@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ─── User Profiles ───────────────────────────────────
+    match /users/{userId} {
+      // Anyone authenticated can read user profiles
+      allow read: if request.auth != null;
+      
+      // Users can only create/update their own profile
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      
+      // Only the user themselves can delete their profile
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // ─── Matches ─────────────────────────────────────────
+    match /matches/{matchId} {
+      // Anyone authenticated can read matches (for viewers)
+      allow read: if request.auth != null;
+      
+      // Only authenticated users can create matches
+      allow create: if request.auth != null;
+      
+      // Only the match creator or assigned scorers can update
+      allow update: if request.auth != null && (
+        resource.data.created_by == request.auth.uid ||
+        request.auth.uid in resource.data.scorer_ids
+      );
+      
+      // Only the match creator can delete
+      allow delete: if request.auth != null && 
+        resource.data.created_by == request.auth.uid;
+      
+      // ─── Players Subcollection ──────────────────────
+      match /players/{playerId} {
+        allow read: if request.auth != null;
+        
+        // Only match creator or scorers can modify players
+        allow write: if request.auth != null && (
+          get(/databases/$(database)/documents/matches/$(matchId)).data.created_by == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.scorer_ids
+        );
+      }
+      
+      // ─── Ball Logs Subcollection ────────────────────
+      match /ball_logs/{ballId} {
+        allow read: if request.auth != null;
+        
+        // Only scorers can add/modify ball logs
+        allow write: if request.auth != null && (
+          get(/databases/$(database)/documents/matches/$(matchId)).data.created_by == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.scorer_ids
+        );
+      }
+    }
+    
+    // ─── Player Stats (Global) ───────────────────────────
+    match /player_stats/{statId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
