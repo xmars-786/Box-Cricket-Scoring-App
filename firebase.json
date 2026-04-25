@@ -1,1 +1,23 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"boxcricketapp-e9a33","appId":"1:82559395274:android:5715b79c7ce85b1410db33","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"boxcricketapp-e9a33","configurations":{"android":"1:82559395274:android:5715b79c7ce85b1410db33","ios":"1:82559395274:ios:d4c6d2030f31d03a10db33","web":"1:82559395274:web:0129ad16c0e568c610db33"}}}}}}
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "boxcricketapp-e9a33",
+                    "appId": "1:82559395274:android:5715b79c7ce85b1410db33",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "boxcricketapp-e9a33",
+                    "configurations": {
+                        "android": "1:82559395274:android:5715b79c7ce85b1410db33",
+                        "ios": "1:82559395274:ios:d4c6d2030f31d03a10db33",
+                        "web": "1:82559395274:web:0129ad16c0e568c610db33"
+                    }
+                }
+            }
+        }
+    }
+}

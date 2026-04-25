@@ -33,4 +33,34 @@ class UIUtils {
       duration: const Duration(seconds: 4),
     );
   }
+
+  static void showLoading(String message) {
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Get.isDarkMode ? const Color(0xFF1B263B) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: AppTheme.primaryGreen),
+                const SizedBox(height: 16),
+                Text(
+                  message,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+  }
 }

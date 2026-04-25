@@ -110,6 +110,7 @@ class ScoringController extends GetxController {
     bool isWicket = false,
     String? dismissalType,
     String? dismissedPlayerId,
+    String? fielderId,
   }) async {
     if (_matchId.value == null) return;
     HapticFeedback.mediumImpact();
@@ -140,31 +141,64 @@ class ScoringController extends GetxController {
       final ballId = _uuid.v4();
 
       if (match.customRulesEnabled) {
-        final ballsFaced = batsman.ballsFaced;
-        final maxBatBalls = _rules.maxBattingOvers.value * 6;
-        if (ballsFaced >= maxBatBalls) {
+        final legalBallsFaced = batsman.legalBallsFaced;
+        final maxBatBalls = (match.maxBattingOvers ?? 2) * 6;
+        if (legalBallsFaced >= maxBatBalls) {
           UIUtils.showError(
-            'Limit reached! ${batsman.name} has already faced 2 overs.',
+            'Limit reached! ${batsman.name} has already faced ${match.maxBattingOvers ?? 2} overs.',
           );
           return;
         }
 
         final totalBowlingBalls = (bowler.oversBowled * 6) + bowler.ballsBowled;
-        final maxBowlBalls = _rules.maxBowlingOvers.value * 6;
+        final maxBowlBalls = (match.maxBowlingOvers ?? 3) * 6;
         if (totalBowlingBalls >= maxBowlBalls) {
           UIUtils.showError(
-            'Limit reached! ${bowler.name} has already bowled 3 overs.',
+            'Limit reached! ${bowler.name} has already bowled ${match.maxBowlingOvers ?? 3} overs.',
           );
           return;
         }
       }
 
+      bool firstInningsCompleted = false;
+      bool matchCompleted = false;
+      String toastMessage = '';
+      String matchId = _matchId.value!;
+
       await _firestore.runTransaction((transaction) async {
+        // 1. PERFORM ALL READS FIRST
         final snapshot = await transaction.get(matchRef);
+        if (!snapshot.exists) throw 'Match not found';
         final freshMatch = MatchModel.fromFirestore(snapshot);
 
         if (freshMatch.lastBallId != match.lastBallId) {
           throw 'Conflict detected. Please reload.';
+        }
+
+        final bSnap = await transaction.get(batsmanRef);
+        if (!bSnap.exists) throw 'Batsman not found';
+        final freshBatsman = PlayerModel.fromMap(bSnap.data()!);
+
+        final boSnap = await transaction.get(bowlerRef);
+        if (!boSnap.exists) throw 'Bowler not found';
+        final freshBowler = PlayerModel.fromMap(boSnap.data()!);
+
+        // If custom rules, fetch all potential batsmen to check innings end later
+        final Map<String, PlayerModel> freshBattingPlayers = {};
+        if (freshMatch.customRulesEnabled) {
+          final battingTeamId = freshMatch.currentInnings;
+          final ids = battingTeamId == 'A' ? freshMatch.teamAPlayers : freshMatch.teamBPlayers;
+          for (var pid in ids) {
+            if (pid == batsman.id) {
+              freshBattingPlayers[pid] = freshBatsman;
+              continue;
+            }
+            final pRef = matchRef.collection('players').doc(pid);
+            final pSnap = await transaction.get(pRef);
+            if (pSnap.exists) {
+              freshBattingPlayers[pid] = PlayerModel.fromMap(pSnap.data()!);
+            }
+          }
         }
 
         final currentScore = freshMatch.currentScore;
@@ -221,7 +255,9 @@ class ScoringController extends GetxController {
         );
 
         final scoreKey =
-            freshMatch.currentInnings == 'A' ? 'team_a_score' : 'team_b_score';
+            freshMatch.currentInnings == 'A'
+                ? 'team_a_score'
+                : 'team_b_score';
         final updatedScore = currentScore.copyWith(
           runs: currentScore.runs + runIncrease,
           wickets: isWicket ? currentScore.wickets + 1 : currentScore.wickets,
@@ -243,19 +279,21 @@ class ScoringController extends GetxController {
           'is_free_hit': nextIsFreeHit,
         });
 
-        final currentBallsFaced =
-            batsman.ballsFaced + (ballType != 'wide' ? 1 : 0);
+        final legalBallsFacedNow =
+            freshBatsman.legalBallsFaced + (isLegalDelivery ? 1 : 0);
         final maxBatBalls =
-            match.customRulesEnabled ? _rules.maxBattingOvers.value * 6 : 99999;
+            freshMatch.customRulesEnabled ? (freshMatch.maxBattingOvers ?? 2) * 6 : 99999;
         final isQuotaReached =
-            match.customRulesEnabled &&
+            freshMatch.customRulesEnabled &&
             !isWicket &&
-            currentBallsFaced >= maxBatBalls;
+            legalBallsFacedNow >= maxBatBalls;
 
         if (ballType != 'wide') {
           final isRunOffBat = ballType == 'normal' || ballType == 'no_ball';
           transaction.update(batsmanRef, {
             'balls_faced': FieldValue.increment(1),
+            if (isLegalDelivery)
+              'legal_balls_faced': FieldValue.increment(1),
             if (isRunOffBat) 'runs_scored': FieldValue.increment(runs),
             if (isRunOffBat && runs == 4) 'fours': FieldValue.increment(1),
             if (isRunOffBat && runs == 6) 'sixes': FieldValue.increment(1),
@@ -278,6 +316,18 @@ class ScoringController extends GetxController {
           }
 
           transaction.update(targetRef, wicketUpdates);
+
+          // Handle Fielder Catch/RunOut/Stumping for Man of the Match stats
+          if (fielderId != null) {
+            final fielderRef = matchRef.collection('players').doc(fielderId);
+            // Only catches count for the MOTM formula provided by user
+            if (dismissalType != null &&
+                dismissalType.toLowerCase().contains('caught')) {
+              transaction.update(fielderRef, {
+                'catches': FieldValue.increment(1),
+              });
+            }
+          }
         }
 
         int bowlerRunsConceded = runIncrease;
@@ -301,17 +351,44 @@ class ScoringController extends GetxController {
         }
 
         if (!match.customRulesEnabled) {
-          if (isLegalDelivery && freshMatch.currentNonStrikerId != null) {
+          String? nextStriker = freshMatch.currentBatsmanId;
+          String? nextNonStriker = freshMatch.currentNonStrikerId;
+
+          if (isLegalDelivery && nextNonStriker != null) {
             final shouldRotate = (runs % 2 != 0);
             if (shouldRotate != isOverEnd) {
-              transaction.update(matchRef, {
-                'current_batsman_id': freshMatch.currentNonStrikerId,
-                'current_non_striker_id': freshMatch.currentBatsmanId,
-              });
+              nextStriker = freshMatch.currentNonStrikerId;
+              nextNonStriker = freshMatch.currentBatsmanId;
             }
           }
+
+          if (isWicket) {
+            final targetPlayerId = dismissedPlayerId ?? batsman.id;
+            if (nextStriker == targetPlayerId) nextStriker = null;
+            if (nextNonStriker == targetPlayerId) nextNonStriker = null;
+
+            if (freshMatch.lastPlayerCanPlay) {
+              final battingTeamSize =
+                  freshMatch.currentInnings == 'A'
+                      ? freshMatch.teamAPlayers.length
+                      : freshMatch.teamBPlayers.length;
+
+              if (battingTeamSize > 0 &&
+                  updatedScore.wickets == battingTeamSize - 1) {
+                if (nextStriker == null && nextNonStriker != null) {
+                  nextStriker = nextNonStriker;
+                  nextNonStriker = null;
+                }
+              }
+            }
+          }
+
+          transaction.update(matchRef, {
+            'current_batsman_id': nextStriker,
+            'current_non_striker_id': nextNonStriker,
+          });
         } else {
-          if (isWicket || currentBallsFaced >= maxBatBalls) {
+          if (isWicket || legalBallsFacedNow >= maxBatBalls) {
             transaction.update(matchRef, {
               'current_batsman_id': null,
               'current_non_striker_id': null,
@@ -344,66 +421,45 @@ class ScoringController extends GetxController {
 
         // 3. Custom Rules end (No eligible batsmen)
         if (freshMatch.customRulesEnabled) {
-          final maxBatBalls = _rules.maxBattingOvers.value * 6;
-          final battingPlayerIds =
-              battingTeamId == 'A'
-                  ? freshMatch.teamAPlayers
-                  : freshMatch.teamBPlayers;
-
+          final maxBatBallsLimit = (freshMatch.maxBattingOvers ?? 2) * 6;
           bool hasEligibleBatsman = false;
-          for (var pid in battingPlayerIds) {
-            final pRef = matchRef.collection('players').doc(pid);
-            final pSnap = await transaction.get(pRef);
-            if (pSnap.exists) {
-              final p = PlayerModel.fromMap(pSnap.data()!);
 
-              // We must account for the current ball if this player IS the batsman
-              int ballsFacedNow = p.ballsFaced;
-              bool isOutNow = p.isOut;
+          for (var p in freshBattingPlayers.values) {
+            // We must account for the current ball if this player IS the batsman
+            int legalBallsNow = p.legalBallsFaced;
+            bool isOutNow = p.isOut;
 
-              if (p.id == batsman.id) {
-                ballsFacedNow = currentBallsFaced;
-                if (isWicket) isOutNow = true;
-              } else if (isWicket &&
-                  p.id == (dismissedPlayerId ?? batsman.id)) {
-                isOutNow = true;
-              }
+            if (p.id == batsman.id) {
+              legalBallsNow = legalBallsFacedNow;
+              if (isWicket) isOutNow = true;
+            } else if (isWicket && p.id == (dismissedPlayerId ?? batsman.id)) {
+              isOutNow = true;
+            }
 
-              if (!isOutNow && ballsFacedNow < maxBatBalls) {
-                hasEligibleBatsman = true;
-                break;
-              }
+            if (!isOutNow && legalBallsNow < maxBatBallsLimit) {
+              hasEligibleBatsman = true;
+              break;
             }
           }
+
           if (!hasEligibleBatsman) {
             isInningsEnded = true;
           }
         }
 
         // 4. Target chased logic (2nd innings)
-        final initialBattingTeam =
-            freshMatch.tossWonBy == 'A'
-                ? (freshMatch.tossDecision == 'bat' ? 'A' : 'B')
-                : (freshMatch.tossDecision == 'bat' ? 'B' : 'A');
-        final isSecondInnings = freshMatch.currentInnings != initialBattingTeam;
-
-        if (isSecondInnings) {
-          final firstScore =
-              freshMatch.currentInnings == 'A'
-                  ? freshMatch.teamBScore
-                  : freshMatch.teamAScore;
-
-          if (firstScore.runs > 0) {
-            // Ensure there is a target to chase
-            int target = firstScore.runs + 1;
-            if (updatedScore.runs >= target) {
-              isInningsEnded = true;
-            }
+        if (freshMatch.isSecondInnings) {
+          int target = freshMatch.targetScore;
+          if (target > 0 && updatedScore.runs >= target) {
+            isInningsEnded = true;
           }
         }
 
         if (isInningsEnded) {
-          if (!isSecondInnings) {
+          if (!freshMatch.isSecondInnings) {
+            firstInningsCompleted = true;
+            toastMessage =
+                '1st Innings Completed: ${freshMatch.teamAName} vs ${freshMatch.teamBName}';
             // End of First Innings -> Enter Break
             transaction.update(matchRef, {
               'is_innings_break': true,
@@ -413,28 +469,19 @@ class ScoringController extends GetxController {
               'is_free_hit': false,
             });
           } else {
-            // End of Match -> Complete
-            final scoreA =
-                freshMatch.currentInnings == 'A'
-                    ? updatedScore.runs
-                    : freshMatch.teamAScore.runs;
-            final scoreB =
-                freshMatch.currentInnings == 'B'
-                    ? updatedScore.runs
-                    : freshMatch.teamBScore.runs;
+            // End of Match -> Complete or Tie
+            final scoreA = freshMatch.currentInnings == 'A' ? updatedScore.runs : freshMatch.teamAScore.runs;
+            final scoreB = freshMatch.currentInnings == 'B' ? updatedScore.runs : freshMatch.teamBScore.runs;
 
             String resultText = 'Match Tied';
             if (scoreA > scoreB) {
-              resultText =
-                  '${freshMatch.teamAName} won by ${scoreA - scoreB} runs';
+              resultText = '${freshMatch.teamAName} won by ${scoreA - scoreB} runs';
             } else if (scoreB > scoreA) {
-              final battingSecond = freshMatch.currentInnings;
               final wicketsDown = updatedScore.wickets;
               final wicketsRemaining =
                   freshMatch.lastPlayerCanPlay
                       ? teamSize - wicketsDown
                       : (teamSize - 1) - wicketsDown;
-
               resultText =
                   '${freshMatch.teamBName} won by $wicketsRemaining wickets';
             }
@@ -447,6 +494,7 @@ class ScoringController extends GetxController {
               'current_non_striker_id': null,
               'current_bowler_id': null,
             });
+            matchCompleted = true;
           }
         }
 
@@ -457,6 +505,12 @@ class ScoringController extends GetxController {
       });
 
       _isLoading.value = false;
+      if (firstInningsCompleted) {
+        UIUtils.showSuccess(toastMessage);
+      }
+      if (matchCompleted) {
+        _saveManOfMatch(matchId);
+      }
       // Show localized success message after transaction
       // Note: We can't easily know if isInningsEnded was true inside here
       // without extra state, but the UI will update anyway.
@@ -466,15 +520,70 @@ class ScoringController extends GetxController {
     }
   }
 
+  // ─── Man of the Match Calculation ──────────────────────────────────────────
+  Future<void> _saveManOfMatch(String matchId) async {
+    try {
+      final matchRef = _firestore
+          .collection(AppConstants.matchesCollection)
+          .doc(matchId);
+
+      // Fetch all players from the match sub-collection
+      final playersSnap = await matchRef.collection('players').get();
+      if (playersSnap.docs.isEmpty) return;
+
+      String? bestPlayerId;
+      String? bestPlayerName;
+      int bestScore = -1;
+
+      for (final doc in playersSnap.docs) {
+        final data = doc.data();
+        final name = data['name'] as String? ?? 'Unknown';
+        final runs = (data['runs_scored'] ?? 0) as int;
+        final wickets = (data['wickets_taken'] ?? 0) as int;
+        final catches = (data['catches'] ?? 0) as int;
+
+        final motmScore = (runs * 1) + (wickets * 20) + (catches * 10);
+        if (motmScore > bestScore) {
+          bestScore = motmScore;
+          bestPlayerId = doc.id;
+          bestPlayerName = name;
+        }
+      }
+
+      if (bestPlayerId != null) {
+        await matchRef.update({
+          'man_of_match': bestPlayerId,
+          'man_of_match_name': bestPlayerName,
+        });
+      }
+    } catch (e) {
+      // Non-critical — don't surface to user
+    }
+  }
+
   // Undo Last Ball (Transactional Reverse)
+  // ─── Start Next Innings (Transactional) ─────────────
   Future<void> startNextInnings(MatchModel match) async {
     try {
       final nextInnings = match.currentInnings == 'A' ? 'B' : 'A';
-      await _firestore.collection('matches').doc(match.id).update({
+      final batch = _firestore.batch();
+      
+      final matchRef = _firestore.collection(AppConstants.matchesCollection).doc(match.id);
+      
+      batch.update(matchRef, {
         'current_innings': nextInnings,
         'is_innings_break': false,
+        'current_batsman_id': null,
+        'current_non_striker_id': null,
+        'current_bowler_id': null,
       });
-      UIUtils.showSuccess('Second Innings Started! Team $nextInnings to bat.');
+
+
+      await batch.commit();
+      
+      UIUtils.showSuccess(
+        'Second Innings Started! Team $nextInnings to bat.'
+      );
     } catch (e) {
       UIUtils.showError('Failed to start next innings: $e');
     }

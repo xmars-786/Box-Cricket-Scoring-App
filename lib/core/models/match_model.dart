@@ -31,10 +31,14 @@ class MatchModel {
   final String? result;
   final bool customRulesEnabled;
   final bool lastPlayerCanPlay;
+  final int? maxBattingOvers;
+  final int? maxBowlingOvers;
   final DateTime createdAt;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final bool isInningsBreak;
+  final String? manOfMatch; // player ID
+  final String? manOfMatchName; // player name for lists
 
 
   MatchModel({
@@ -67,11 +71,14 @@ class MatchModel {
     this.result,
     this.customRulesEnabled = false,
     this.lastPlayerCanPlay = false,
+    this.maxBattingOvers,
+    this.maxBowlingOvers,
     DateTime? createdAt,
     this.startedAt,
     this.completedAt,
     this.isInningsBreak = false,
-
+    this.manOfMatch,
+    this.manOfMatchName,
   })  : teamAScore = teamAScore ?? MatchScore(),
         teamBScore = teamBScore ?? MatchScore(),
         createdAt = createdAt ?? DateTime.now();
@@ -108,10 +115,14 @@ class MatchModel {
       result: data['result'],
       customRulesEnabled: data['custom_rules_enabled'] ?? false,
       lastPlayerCanPlay: data['last_player_can_play'] ?? false,
+      maxBattingOvers: data['max_batting_overs'],
+      maxBowlingOvers: data['max_bowling_overs'],
       createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
       startedAt: (data['started_at'] as Timestamp?)?.toDate(),
       completedAt: (data['completed_at'] as Timestamp?)?.toDate(),
       isInningsBreak: data['is_innings_break'] ?? false,
+      manOfMatch: data['man_of_match'],
+      manOfMatchName: data['man_of_match_name'],
     );
   }
 
@@ -145,10 +156,14 @@ class MatchModel {
       'result': result,
       'custom_rules_enabled': customRulesEnabled,
       'last_player_can_play': lastPlayerCanPlay,
+      'max_batting_overs': maxBattingOvers,
+      'max_bowling_overs': maxBowlingOvers,
       'created_at': Timestamp.fromDate(createdAt),
       'started_at': startedAt != null ? Timestamp.fromDate(startedAt!) : null,
       'completed_at': completedAt != null ? Timestamp.fromDate(completedAt!) : null,
       'is_innings_break': isInningsBreak,
+      'man_of_match': manOfMatch,
+      'man_of_match_name': manOfMatchName,
     };
   }
 
@@ -180,9 +195,13 @@ class MatchModel {
     String? result,
     bool? customRulesEnabled,
     bool? lastPlayerCanPlay,
+    int? maxBattingOvers,
+    int? maxBowlingOvers,
     DateTime? startedAt,
     DateTime? completedAt,
     bool? isInningsBreak,
+    String? manOfMatch,
+    String? manOfMatchName,
 
   }) {
     return MatchModel(
@@ -215,16 +234,21 @@ class MatchModel {
       result: result ?? this.result,
       customRulesEnabled: customRulesEnabled ?? this.customRulesEnabled,
       lastPlayerCanPlay: lastPlayerCanPlay ?? this.lastPlayerCanPlay,
+      maxBattingOvers: maxBattingOvers ?? this.maxBattingOvers,
+      maxBowlingOvers: maxBowlingOvers ?? this.maxBowlingOvers,
       createdAt: createdAt,
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,
       isInningsBreak: isInningsBreak ?? this.isInningsBreak,
+      manOfMatch: manOfMatch ?? this.manOfMatch,
+      manOfMatchName: manOfMatchName ?? this.manOfMatchName,
     );
   }
 
   /// Get current innings score
-  MatchScore get currentScore =>
-      currentInnings == 'A' ? teamAScore : teamBScore;
+  MatchScore get currentScore {
+    return currentInnings == 'A' ? teamAScore : teamBScore;
+  }
 
   /// Get batting team name
   String get battingTeamName =>
@@ -237,6 +261,24 @@ class MatchModel {
   bool get isLive => status == 'live';
   bool get isCompleted => status == 'completed';
   bool get isUpcoming => status == 'upcoming';
+
+  /// The team that batted first in the match
+  String get initialBattingTeam =>
+      tossWonBy == 'A'
+          ? (tossDecision == 'bat' ? 'A' : 'B')
+          : (tossDecision == 'bat' ? 'B' : 'A');
+
+  /// Whether the match is currently in the second innings (Regular)
+  bool get isSecondInnings {
+    return currentInnings != initialBattingTeam;
+  }
+
+  /// The target score for the chasing team (runs + 1)
+  int get targetScore {
+    if (!isSecondInnings) return 0;
+    final firstInningsScore = currentInnings == 'A' ? teamBScore : teamAScore;
+    return firstInningsScore.runs + 1;
+  }
 }
 
 /// Score data for a team in a match.

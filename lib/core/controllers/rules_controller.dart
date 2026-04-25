@@ -84,8 +84,8 @@ class RulesController extends GetxController {
           : perMatchOvers;
 
   /// Check if a batsman has exceeded their batting over limit.
-  bool isBatsmanOverLimitReached(int ballsFaced) =>
-      customRulesEnabled.value && ballsFaced >= (maxBattingOvers.value * 6);
+  bool isBatsmanOverLimitReached(int legalBallsFaced) =>
+      customRulesEnabled.value && legalBallsFaced >= (maxBattingOvers.value * 6);
 
   /// Check if a bowler has exceeded their bowling over limit.
   bool isBowlerOverLimitReached(int oversBowled) =>

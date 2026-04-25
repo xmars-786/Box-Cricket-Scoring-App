@@ -33,9 +33,88 @@ class ScorecardScreen extends StatelessWidget {
         .where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0)
         .toList();
 
+    // Actually, for simplicity, I'll just show the scores in their respective innings sections.
+
+    final motmPlayerId = match.manOfMatch;
+    final motmPlayer = motmPlayerId != null ? players[motmPlayerId] : null;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // ── Man of the Match card (only when completed) ──────────
+        if (match.isCompleted && motmPlayer != null) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFFAB00), Color(0xFFFF6D00)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFFAB00).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.emoji_events_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'MAN OF THE MATCH',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        motmPlayer.name,
+                        style: GoogleFonts.outfit(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${motmPlayer.runsScored} runs  •  ${motmPlayer.wicketsTaken} wickets  •  ${motmPlayer.catches} catches',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         // Team A Innings
         _buildInningsHeader(
           match.teamAName,
@@ -65,6 +144,7 @@ class ScorecardScreen extends StatelessWidget {
         _buildBowlingTable(teamABowlers, isDark),
 
         const SizedBox(height: 24),
+
 
         // Result
         if (match.result != null) _buildResultCard(isDark),
@@ -508,6 +588,18 @@ class ScorecardScreen extends StatelessWidget {
           fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
           color: color,
         ),
+      ),
+    );
+  }
+
+
+  Widget _cell(String text, double width) {
+    return SizedBox(
+      width: width,
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(fontSize: 13),
       ),
     );
   }

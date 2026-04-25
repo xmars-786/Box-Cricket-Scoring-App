@@ -25,6 +25,14 @@ class BoxCricketApp extends StatelessWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: themeController.themeMode,
       getPages: AppRoutes.pages,
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: const TextScaler.linear(0.9),
+          ),
+          child: child!,
+        );
+      },
       home: authController.isLoading
           ? const _SplashScreen()
           : authController.isAuthenticated

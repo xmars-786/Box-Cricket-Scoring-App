@@ -120,4 +120,12 @@ class AdminController extends GetxController {
       Get.snackbar('Error', 'Failed to add player: $e');
     }
   }
+
+  Future<void> deleteUser(String uid) async {
+    try {
+      await _firestore.collection(AppConstants.usersCollection).doc(uid).delete();
+    } catch (e) {
+      Get.snackbar('Error', 'Failed to delete user: $e');
+    }
+  }
 }

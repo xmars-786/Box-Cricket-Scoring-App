@@ -26,6 +26,8 @@ class PlayerModel {
   final int widesBowled;
   final int noBallsBowled;
   final int maidens;
+  final int catches;
+  final int legalBallsFaced; // Track legal balls for quota (excludes Wides and No Balls)
 
   PlayerModel({
     required this.id,
@@ -48,6 +50,8 @@ class PlayerModel {
     this.widesBowled = 0,
     this.noBallsBowled = 0,
     this.maidens = 0,
+    this.catches = 0,
+    this.legalBallsFaced = 0,
   });
 
   factory PlayerModel.fromMap(Map<String, dynamic> map) {
@@ -72,6 +76,8 @@ class PlayerModel {
       widesBowled: map['wides_bowled'] ?? 0,
       noBallsBowled: map['no_balls_bowled'] ?? 0,
       maidens: map['maidens'] ?? 0,
+      catches: map['catches'] ?? 0,
+      legalBallsFaced: map['legal_balls_faced'] ?? 0,
     );
   }
 
@@ -97,6 +103,8 @@ class PlayerModel {
       'wides_bowled': widesBowled,
       'no_balls_bowled': noBallsBowled,
       'maidens': maidens,
+      'catches': catches,
+      'legal_balls_faced': legalBallsFaced,
     };
   }
 
@@ -120,6 +128,8 @@ class PlayerModel {
     int? widesBowled,
     int? noBallsBowled,
     int? maidens,
+    int? catches,
+    int? legalBallsFaced,
   }) {
     return PlayerModel(
       id: id,
@@ -142,6 +152,8 @@ class PlayerModel {
       widesBowled: widesBowled ?? this.widesBowled,
       noBallsBowled: noBallsBowled ?? this.noBallsBowled,
       maidens: maidens ?? this.maidens,
+      catches: catches ?? this.catches,
+      legalBallsFaced: legalBallsFaced ?? this.legalBallsFaced,
     );
   }
 

@@ -35,14 +35,17 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final _teamANameController = TextEditingController();
   final _teamBNameController = TextEditingController();
   final _groundNameController = TextEditingController();
-  int _totalOvers = 6;
+  int _totalOvers = 10;
   String? _teamACaptainId;
   String? _teamAViceCaptainId;
   String? _teamBCaptainId;
   String? _teamBViceCaptainId;
   String _tossWonBy = 'A';
   String _tossDecision = 'bat';
+  bool _customRulesEnabled = false;
   bool _lastPlayerCanPlay = false;
+  int _maxBattingOvers = 2;
+  int _maxBowlingOvers = 3;
 
   // Players
   final List<PlayerModel> _teamAPlayers = [];
@@ -61,7 +64,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   void initState() {
     super.initState();
     _fetchUsers();
+    _customRulesEnabled = rulesController.customRulesEnabled.value;
     _lastPlayerCanPlay = rulesController.lastPlayerCanPlay.value;
+    _maxBattingOvers = rulesController.maxBattingOvers.value;
+    _maxBowlingOvers = rulesController.maxBowlingOvers.value;
   }
 
   Future<void> _fetchUsers() async {
@@ -187,7 +193,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     );
   }
 
-  // ─── Step 1 ────────────────────────────────────────
   Widget _buildMatchDetailsStep(bool isDark) {
     return Column(
       children: [
@@ -224,43 +229,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           _teamANameController.text,
         ),
         const SizedBox(height: 20),
-        Obx(() {
-          final customOn = rulesController.customRulesEnabled.value;
-          if (customOn) {
-            // Show read-only info banner
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF6B35).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFFF6B35).withOpacity(0.4),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.tune_rounded,
-                    color: Color(0xFFFF6B35),
-                    size: 18,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Custom Rules active — Match ends when all players complete their quotas.',
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFFFF6B35),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-          // Normal overs stepper
-          return Row(
+        _buildAdvancedSettings(isDark),
+        const SizedBox(height: 20),
+        if (!_customRulesEnabled)
+          Row(
             children: [
               Text(
                 'Total Overs:',
@@ -310,9 +282,166 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 ),
               ),
             ],
-          );
-        }),
+          ),
       ],
+    );
+  }
+
+  Widget _buildAdvancedSettings(bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B263B) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
+        ),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            title: Text(
+              'Single Batsman Mode',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Overs calculated based on player quotas',
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+            ),
+            value: _customRulesEnabled,
+            activeColor: Colors.white,
+            activeTrackColor: AppTheme.primaryGreen,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            onChanged: (val) => setState(() => _customRulesEnabled = val),
+          ),
+          if (_customRulesEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.vibrantOrange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: AppTheme.vibrantOrange,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Total match overs will be based on players and quotas.',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppTheme.vibrantOrange,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Max Batting Overs',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        '$_maxBattingOvers Overs',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _maxBattingOvers.toDouble(),
+                    min: 1,
+                    max: 6,
+                    divisions: 5,
+                    activeColor: AppTheme.primaryGreen,
+                    onChanged:
+                        (v) => setState(() => _maxBattingOvers = v.toInt()),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Max Bowling Overs',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        '$_maxBowlingOvers Overs',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _maxBowlingOvers.toDouble(),
+                    min: 1,
+                    max: 6,
+                    divisions: 5,
+                    activeColor: AppTheme.primaryGreen,
+                    onChanged:
+                        (v) => setState(() => _maxBowlingOvers = v.toInt()),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const Divider(height: 1),
+          SwitchListTile(
+            title: Text(
+              'Last Player Can Play',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Allows last batsman to play alone',
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+            ),
+            value: _lastPlayerCanPlay,
+            activeColor: Colors.white,
+            activeTrackColor: AppTheme.primaryGreen,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            onChanged: (val) => setState(() => _lastPlayerCanPlay = val),
+          ),
+        ],
+      ),
     );
   }
 
@@ -408,8 +537,12 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    FocusScope.of(context).unfocus();
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -817,9 +950,12 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final searchCtrl = TextEditingController();
     String query = '';
 
+    FocusScope.of(context).unfocus();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1068,9 +1204,12 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final searchCtrl = TextEditingController();
     String query = '';
 
+    FocusScope.of(context).unfocus();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1256,8 +1395,12 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     required ValueChanged<String?> onChanged,
     required bool isDark,
   }) {
+    FocusScope.of(context).unfocus();
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1588,38 +1731,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        _buildDivider('Advanced Settings', isDark),
-        const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1B263B) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
-            ),
-          ),
-          child: SwitchListTile(
-            title: Text(
-              'Last Player Can Play',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            subtitle: Text(
-              'Allows last batsman to play alone',
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-            ),
-            value: _lastPlayerCanPlay,
-            activeColor: Colors.white,
-            activeTrackColor: AppTheme.primaryGreen,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            onChanged: (val) => setState(() => _lastPlayerCanPlay = val),
-          ),
-        ),
       ],
     );
   }
@@ -1664,13 +1775,13 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final matchId = await matchController.createMatch(
       title: _titleController.text.trim(),
       createdBy: authController.userId,
-      totalOvers: rulesController.effectiveOvers(
-        _totalOvers,
-        teamSize:
-            _teamAPlayers.length > _teamBPlayers.length
-                ? _teamAPlayers.length
-                : _teamBPlayers.length,
-      ),
+      totalOvers:
+          _customRulesEnabled
+              ? (_teamAPlayers.length > _teamBPlayers.length
+                      ? _teamAPlayers.length
+                      : _teamBPlayers.length) *
+                  _maxBattingOvers
+              : _totalOvers,
       teamAName: _teamANameController.text.trim(),
       teamBName: _teamBNameController.text.trim(),
       groundName: _groundNameController.text.trim(),
@@ -1683,8 +1794,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       teamAViceCaptainId: _teamAViceCaptainId,
       teamBCaptainId: _teamBCaptainId,
       teamBViceCaptainId: _teamBViceCaptainId,
-      customRulesEnabled: rulesController.customRulesEnabled.value,
+      customRulesEnabled: _customRulesEnabled,
       lastPlayerCanPlay: _lastPlayerCanPlay,
+      maxBattingOvers: _customRulesEnabled ? _maxBattingOvers : null,
+      maxBowlingOvers: _customRulesEnabled ? _maxBowlingOvers : null,
     );
 
     if (matchId != null) {

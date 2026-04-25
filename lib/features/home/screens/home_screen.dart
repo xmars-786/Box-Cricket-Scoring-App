@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/models/match_model.dart';
 import '../../match/screens/match_detail_screen.dart';
+import '../../match/widgets/match_card_widget.dart';
 import '../../scoring/screens/scoring_screen.dart';
 
 /// Home screen with live matches, my matches, and navigation using GetX.
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ThemeController themeController = Get.find<ThemeController>();
   final ConnectivityController connectivityController =
       Get.find<ConnectivityController>();
+  final ScrollController _myMatchesScrollController = ScrollController();
 
   @override
   void initState() {
@@ -35,17 +37,29 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
     });
+    _myMatchesScrollController.addListener(_onMyMatchesScroll);
+  }
+
+  void _onMyMatchesScroll() {
+    if (_myMatchesScrollController.position.pixels >=
+        _myMatchesScrollController.position.maxScrollExtent - 200) {
+      if (authController.userId != null) {
+        matchController.loadMyMatches(authController.userId!);
+      }
+    }
   }
 
   void _loadData() {
     matchController.listenToLiveMatches();
-    if (authController.isAuthenticated) {
-      matchController.loadMyMatches(authController.userId);
+    matchController.loadCompletedMatches(refresh: true);
+    if (authController.userId != null) {
+      matchController.loadMyMatches(authController.userId!, refresh: true);
     }
   }
 
   @override
   void dispose() {
+    _myMatchesScrollController.dispose();
     super.dispose();
   }
 
@@ -114,7 +128,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton:
-          _currentIndex <= 1
+          _currentIndex <= 1 && 
+          (authController.currentUser?.isAdmin ?? false) && 
+          matchController.liveMatches.isEmpty
               ? FloatingActionButton.extended(
                 onPressed: () => Get.toNamed(AppRoutes.createMatch),
                 backgroundColor: AppTheme.primaryGreen,
@@ -131,338 +147,126 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ─── Dashboard Tab ──────────────────────────────────
   Widget _buildDashboard(bool isDark) {
-    return CustomScrollView(
-      slivers: [
-        // App bar with gradient
-        SliverAppBar(
-          expandedHeight: 140,
-          floating: true,
-          pinned: true,
-          flexibleSpace: FlexibleSpaceBar(
-            background: Container(
-              decoration: const BoxDecoration(
-                gradient: AppTheme.primaryGradient,
-              ),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.sports_cricket,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            'Box Cricket',
-                            style: GoogleFonts.outfit(
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
+    return RefreshIndicator(
+      onRefresh: () async {
+        matchController.listenToLiveMatches();
+        await matchController.loadCompletedMatches(refresh: true);
+      },
+      color: AppTheme.wicketRed,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // App bar with gradient
+          SliverAppBar(
+            expandedHeight: 140,
+            floating: true,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: AppTheme.primaryGradient,
+                ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.sports_cricket,
                               color: Colors.white,
+                              size: 28,
                             ),
-                          ),
-                          const Spacer(),
-                          // Theme toggle
-                          Obx(
-                            () => IconButton(
-                              icon: Icon(
-                                themeController.isDarkMode
-                                    ? Icons.light_mode
-                                    : Icons.dark_mode,
+                            const SizedBox(width: 10),
+                            Text(
+                              'Box Cricket',
+                              style: GoogleFonts.outfit(
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
-                              onPressed: themeController.toggleTheme,
+                            ),
+                            const Spacer(),
+                            // Theme toggle
+                            Obx(
+                              () => IconButton(
+                                icon: Icon(
+                                  themeController.isDarkMode
+                                      ? Icons.light_mode
+                                      : Icons.dark_mode,
+                                  color: Colors.white,
+                                ),
+                                onPressed: themeController.toggleTheme,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Obx(
+                          () => Text(
+                            'Welcome, ${authController.currentUser?.name ?? 'Player'} 👋',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.white70,
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Obx(
-                        () => Text(
-                          'Welcome, ${authController.currentUser?.name ?? 'Player'} 👋',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            color: Colors.white70,
-                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
 
-        // Live Matches Header
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: AppTheme.wicketRed,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+          // Live Matches List
+          Obx(() {
+            if (matchController.liveMatches.isEmpty) {
+              return SliverFillRemaining(
+                child: _buildEmptyState(
+                  isDark,
+                  Icons.sensors_off_rounded,
+                  'No live matches at the moment',
+                  'Check back later or create a new match to go live!',
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'LIVE MATCHES',
-                  style: GoogleFonts.outfit(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.wicketRed,
-                    letterSpacing: 1.2,
-                  ),
+              );
+            }
+            return SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _buildLiveMatchCard(
+                  matchController.liveMatches[index],
+                  isDark,
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: AppTheme.wicketRed,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Live Matches List
-        Obx(() {
-          if (matchController.liveMatches.isEmpty) {
-            return SliverToBoxAdapter(
-              child: _buildEmptyState(
-                isDark,
-                Icons.sports_cricket,
-                'No live matches',
-                'Create a new match to get started!',
+                childCount: matchController.liveMatches.length,
               ),
             );
-          }
-          return SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildLiveMatchCard(
-                matchController.liveMatches[index],
-                isDark,
-              ),
-              childCount: matchController.liveMatches.length,
-            ),
-          );
-        }),
+          }),
 
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
-      ],
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
     );
   }
 
   // ─── Live Match Card ────────────────────────────────
   Widget _buildLiveMatchCard(MatchModel match, bool isDark) {
+    final isAdmin = authController.currentUser?.isAdmin ?? false;
+    final isScorer = match.scorerIds.contains(authController.userId) || isAdmin;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _openMatch(match),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1B263B) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color:
-                    isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                // Match title & live badge
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        match.title,
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.wicketRed.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppTheme.wicketRed,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'LIVE',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.wicketRed,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Score display
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTeamScore(
-                        match.teamAName,
-                        match.teamAScore,
-                        match.currentInnings == 'A',
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            isDark
-                                ? const Color(0xFF253750)
-                                : const Color(0xFFF0F2F5),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'vs',
-                        style: GoogleFonts.outfit(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white54 : Colors.grey,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildTeamScore(
-                        match.teamBName,
-                        match.teamBScore,
-                        match.currentInnings == 'B',
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-                // Run rate
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'CRR: ${match.currentScore.runRate.toStringAsFixed(2)}',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: isDark ? Colors.white54 : Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Text(
-                      'Overs: ${match.currentScore.oversDisplay}/${match.totalOvers}',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: isDark ? Colors.white54 : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // --- Quick Actions ---
-                Builder(
-                  builder: (context) {
-                    final isAdmin =
-                        authController.currentUser?.isAdmin ?? false;
-                    final isScorer =
-                        match.scorerIds.contains(authController.userId) ||
-                        isAdmin;
-
-                    if (!isScorer && !isAdmin) return const SizedBox.shrink();
-
-                    return Column(
-                      children: [
-                        const Divider(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (isAdmin)
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                tooltip: 'Delete Match',
-                                onPressed: () => _confirmDelete(match),
-                              ),
-                            if (isScorer && match.isLive)
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 8.0),
-                                  child: ElevatedButton.icon(
-                                    onPressed:
-                                        () => Get.to(
-                                          () =>
-                                              ScoringScreen(matchId: match.id),
-                                        ),
-                                    icon: const Icon(Icons.edit_note, size: 18),
-                                    label: const Text('Add Score'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.vibrantOrange,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: MatchCardWidget(
+        match: match,
+        isDark: isDark,
+        isAdmin: isAdmin,
+        isScorer: isScorer,
+        onDelete: () => _confirmDelete(match),
       ),
     );
   }
@@ -498,163 +302,83 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ─── My Matches Tab ─────────────────────────────────
   Widget _buildMyMatches(bool isDark) {
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          title: Text(
-            'My Matches',
-            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+    return RefreshIndicator(
+      onRefresh: () async {
+        if (authController.userId != null) {
+          await matchController.loadMyMatches(
+            authController.userId!,
+            refresh: true,
+          );
+        }
+      },
+      color: AppTheme.primaryGreen,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        controller: _myMatchesScrollController,
+        slivers: [
+          SliverAppBar(
+            title: Text(
+              'My Matches',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+            ),
+            floating: true,
+            automaticallyImplyLeading: false,
           ),
-          floating: true,
-          automaticallyImplyLeading: false,
-        ),
-        Obx(() {
-          if (matchController.isLoading) {
-            return const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (matchController.myMatches.isEmpty) {
-            return SliverFillRemaining(
-              child: _buildEmptyState(
-                isDark,
-                Icons.sports_cricket_outlined,
-                'No matches yet',
-                'Create your first match!',
+          Obx(() {
+            if (matchController.isLoading &&
+                matchController.myMatches.isEmpty) {
+              return const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (matchController.myMatches.isEmpty) {
+              return SliverFillRemaining(
+                child: _buildEmptyState(
+                  isDark,
+                  Icons.sports_cricket_outlined,
+                  'No matches yet',
+                  'Create your first match!',
+                ),
+              );
+            }
+            return SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (index < matchController.myMatches.length) {
+                    final match = matchController.myMatches[index];
+                    return _buildMatchListItem(match, isDark);
+                  } else {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                },
+                childCount:
+                    matchController.myMatches.length +
+                    (matchController.isLoading ? 1 : 0),
               ),
             );
-          }
-          return SliverList(
-            delegate: SliverChildBuilderDelegate((context, index) {
-              final match = matchController.myMatches[index];
-              return _buildMatchListItem(match, isDark);
-            }, childCount: matchController.myMatches.length),
-          );
-        }),
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
-      ],
+          }),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
     );
   }
 
   Widget _buildMatchListItem(MatchModel match, bool isDark) {
+    final isAdmin = authController.currentUser?.isAdmin ?? false;
+    final isScorer = match.scorerIds.contains(authController.userId) || isAdmin;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _openMatch(match),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1B263B) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color:
-                    isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
-              ),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(match.status).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.sports_cricket,
-                        color: _getStatusColor(match.status),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            match.title,
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${match.teamAName} vs ${match.teamBName}  •  ${match.totalOvers} overs',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              color: isDark ? Colors.white54 : Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildStatusBadge(match.status),
-                  ],
-                ),
-
-                // --- Quick Actions ---
-                Builder(
-                  builder: (context) {
-                    final isAdmin =
-                        authController.currentUser?.isAdmin ?? false;
-                    final isScorer =
-                        match.scorerIds.contains(authController.userId) ||
-                        isAdmin;
-
-                    if ((!isScorer || !match.isLive) && !isAdmin)
-                      return const SizedBox.shrink();
-
-                    return Column(
-                      children: [
-                        const Divider(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (isAdmin)
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                tooltip: 'Delete Match',
-                                onPressed: () => _confirmDelete(match),
-                              ),
-                            if (isScorer && match.isLive)
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 8.0),
-                                  child: ElevatedButton.icon(
-                                    onPressed:
-                                        () => Get.to(
-                                          () =>
-                                              ScoringScreen(matchId: match.id),
-                                        ),
-                                    icon: const Icon(Icons.edit_note, size: 18),
-                                    label: const Text('Add Score'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.vibrantOrange,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: MatchCardWidget(
+        match: match,
+        isDark: isDark,
+        isAdmin: isAdmin,
+        isScorer: isScorer,
+        onDelete: () => _confirmDelete(match),
       ),
     );
   }
@@ -682,17 +406,44 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                if (authController.currentUser?.isAdmin == true) ...[
-                  _buildQuickAction(
-                    isDark,
-                    Icons.add_circle_outline,
-                    'Create Match',
-                    'Set up a new box cricket match',
-                    AppTheme.primaryGreen,
-                    () => Get.toNamed(AppRoutes.createMatch),
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                Obx(() {
+                  final hasLiveMatch = matchController.liveMatches.isNotEmpty;
+                  if (authController.currentUser?.isAdmin == true &&
+                      !hasLiveMatch) {
+                    return Column(
+                      children: [
+                        _buildQuickAction(
+                          isDark,
+                          Icons.add_circle_outline,
+                          'Create Match',
+                          'Set up a new box cricket match',
+                          AppTheme.primaryGreen,
+                          () => Get.toNamed(AppRoutes.createMatch),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  }
+                  if (hasLiveMatch &&
+                      authController.currentUser?.isAdmin == true) {
+                    return Column(
+                      children: [
+                        _buildQuickAction(
+                          isDark,
+                          Icons.sensors,
+                          'Match Live',
+                          'A match is currently in progress',
+                          AppTheme.wicketRed.withOpacity(0.7),
+                          () => setState(
+                            () => _currentIndex = 0,
+                          ), // Switch to Dashboard tab
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }),
                 _buildQuickAction(
                   isDark,
                   Icons.history,
@@ -702,15 +453,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   () => Get.toNamed(AppRoutes.matchHistory),
                 ),
                 const SizedBox(height: 12),
-                _buildQuickAction(
-                  isDark,
-                  Icons.group_work_outlined,
-                  'Team Management',
-                  'Create and manage your teams',
-                  const Color(0xFF2196F3),
-                  () => Get.toNamed(AppRoutes.teams),
-                ),
-                const SizedBox(height: 12),
+                if (authController.currentUser?.isAdmin == true) ...[
+                  _buildQuickAction(
+                    isDark,
+                    Icons.group_work_outlined,
+                    'Team Management',
+                    'Create and manage your teams',
+                    const Color(0xFF2196F3),
+                    () => Get.toNamed(AppRoutes.teams),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _buildQuickAction(
                   isDark,
                   Icons.leaderboard_outlined,

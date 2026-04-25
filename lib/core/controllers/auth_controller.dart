@@ -9,6 +9,7 @@ import '../models/user_model.dart';
 import '../constants/app_constants.dart';
 import '../utils/ui_utils.dart';
 import '../services/cloudinary_service.dart';
+import '../routes/app_routes.dart';
 
 class AuthController extends GetxController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -26,6 +27,7 @@ class AuthController extends GetxController {
 
   // ─── Getters ────────────────────────────────────────────
   AppUser? get currentUser => _currentUser.value;
+  Rxn<AppUser> get currentUserRx => _currentUser;
   bool get isAuthenticated => _currentUser.value != null;
   bool get isLoading => _isLoading.value;
   String? get error => _error.value;
@@ -238,6 +240,7 @@ class AuthController extends GetxController {
       }
 
       _isLoading.value = false;
+      Get.offAllNamed(AppRoutes.home);
       return true;
     } on FirebaseAuthException catch (e) {
       final msg = _getAuthErrorMessage(e.code);
@@ -258,6 +261,7 @@ class AuthController extends GetxController {
   Future<void> signOut() async {
     await _auth.signOut();
     _currentUser.value = null;
+    Get.offAllNamed(AppRoutes.login);
   }
 
   // ─── Update User Profile ───────────────────────────────

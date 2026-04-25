@@ -109,30 +109,41 @@ class AdminDashboardScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              trailing: ElevatedButton(
-                onPressed: () => _showApprovalDialog(context, user),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF253750)
-                          : Colors.grey[200],
-                  foregroundColor:
-                      Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white
-                          : Colors.black87,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                    onPressed: () => _showDeleteConfirmation(context, user),
+                    tooltip: 'Delete Player',
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(width: 4),
+                  ElevatedButton(
+                    onPressed: () => _showApprovalDialog(context, user),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF253750)
+                              : Colors.grey[200],
+                      foregroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white
+                              : Colors.black87,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Action',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'Action',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
+                ],
               ),
             ),
           );
@@ -164,9 +175,18 @@ class AdminDashboardScreen extends StatelessWidget {
             ),
             trailing:
                 Get.find<AuthController>().currentUser?.isSuperAdmin == true
-                    ? IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: () => _showRoleDialog(context, user),
+                    ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: () => _showRoleDialog(context, user),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                          onPressed: () => _showDeleteConfirmation(context, user),
+                        ),
+                      ],
                     )
                     : null,
           );
@@ -247,174 +267,6 @@ class AdminDashboardScreen extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
-
-          // Last Player Can Play toggle
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1B263B) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color:
-                    isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
-              ),
-            ),
-            child: Obx(
-              () => SwitchListTile(
-                title: Text(
-                  'Last Player Can Play',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Text(
-                  'Allows the last remaining batsman to bat alone',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-                ),
-                value: rulesController.lastPlayerCanPlay.value,
-                activeColor: Colors.white,
-                activeTrackColor: AppTheme.primaryGreen,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                onChanged:
-                    (val) => rulesController.updateRules(lastPlayerPlay: val),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 28),
-
-          // ── Custom Over Rules ────────────────────────
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B35).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.tune_rounded,
-                  color: Color(0xFFFF6B35),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Custom Over Rules',
-                style: GoogleFonts.outfit(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Limit how many overs a player can bat or bowl per match.',
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-
-          // Master toggle
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1B263B) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color:
-                    isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
-              ),
-            ),
-            child: Obx(
-              () => SwitchListTile(
-                title: Text(
-                  'Enable Custom Rules',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Text(
-                  rulesController.customRulesEnabled.value
-                      ? 'Custom limits active for all matches'
-                      : 'Using default (no player limits)',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-                ),
-                value: rulesController.customRulesEnabled.value,
-                activeColor: Colors.white,
-                activeTrackColor: const Color(0xFFFF6B35),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                onChanged:
-                    (val) => rulesController.updateRules(customEnabled: val),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          Obx(
-            () =>
-                rulesController.customRulesEnabled.value
-                    ? Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.info_outline,
-                            size: 14,
-                            color: AppTheme.vibrantOrange,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Single Batsman mode: New striker only after wicket or quota end. Innings ends when all players finish quota.',
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                color: AppTheme.vibrantOrange,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                    : const SizedBox.shrink(),
-          ),
-          const SizedBox(height: 12),
-          // Conditional settings (only when enabled)
-          Obx(() {
-            if (!rulesController.customRulesEnabled.value) {
-              return const SizedBox.shrink();
-            }
-            return Column(
-              children: [
-                const SizedBox(height: 12),
-                _buildStepperTile(
-                  isDark,
-                  'Max Batting Overs / Player',
-                  rulesController.maxBattingOvers.value,
-                  (val) => rulesController.updateRules(maxBatting: val),
-                  min: 1,
-                  max: 10,
-                  color: const Color(0xFF00C853),
-                ),
-                const SizedBox(height: 12),
-                _buildStepperTile(
-                  isDark,
-                  'Max Bowling Overs / Player',
-                  rulesController.maxBowlingOvers.value,
-                  (val) => rulesController.updateRules(maxBowling: val),
-                  min: 1,
-                  max: 10,
-                  color: const Color(0xFF2196F3),
-                ),
-              ],
-            );
-          }),
         ],
       ),
     );
@@ -858,6 +710,38 @@ class AdminDashboardScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showDeleteConfirmation(BuildContext context, AppUser user) {
+    Get.dialog(
+      AlertDialog(
+        title: Text(
+          'Delete Player',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+        ),
+        content: Text('Are you sure you want to delete ${user.name}? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              adminController.deleteUser(user.uid);
+              Get.back();
+              Get.snackbar(
+                'Deleted',
+                'Player has been removed',
+                backgroundColor: Colors.redAccent,
+                colorText: Colors.white,
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

@@ -14,8 +14,10 @@ import '../../../core/controllers/match_controller.dart';
 import '../../../core/controllers/scoring_controller.dart';
 import '../../../core/controllers/match_detail_controller.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/ui_utils.dart';
 import '../../scoring/screens/scoring_screen.dart';
 import '../../scorecard/screens/scorecard_screen.dart';
+import '../utils/match_dialogs.dart';
 import 'package:lottie/lottie.dart';
 
 /// Match detail screen for viewers — Cricbuzz-style live score view.
@@ -28,19 +30,17 @@ class MatchDetailScreen extends StatefulWidget {
   State<MatchDetailScreen> createState() => _MatchDetailScreenState();
 }
 
-class _MatchDetailScreenState extends State<MatchDetailScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
+class _MatchDetailScreenState extends State<MatchDetailScreen> {
   final MatchController matchController = Get.find<MatchController>();
   final ScoringController scoringController = Get.find<ScoringController>();
   final AuthController authController = Get.find<AuthController>();
-  final MatchDetailController detailController = Get.put(MatchDetailController());
+  final MatchDetailController detailController = Get.put(
+    MatchDetailController(),
+  );
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       matchController.listenToMatch(widget.matchId);
@@ -51,7 +51,6 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
 
   @override
   void dispose() {
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -68,133 +67,150 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
               return const Center(child: CircularProgressIndicator());
             }
 
-        return NestedScrollView(
-          headerSliverBuilder:
-              (context, innerBoxIsScrolled) => [
-                // Score header
-                SliverAppBar(
-                  expandedHeight: 250,
-                  pinned: true,
-                  backgroundColor:
-                      isDark ? const Color(0xFF111827) : AppTheme.primaryGreen,
-                  flexibleSpace: FlexibleSpaceBar(
-                    collapseMode: CollapseMode.none,
-                    background: MatchHeaderWidget(match: match, isDark: isDark),
-                  ),
-                  centerTitle: true,
-                  title: Text(
-                    innerBoxIsScrolled
-                        ? '${match.teamAScore.runs}/${match.teamAScore.wickets} vs ${match.teamBScore.runs}/${match.teamBScore.wickets}'
-                        : match.title,
-                    style: GoogleFonts.outfit(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  actions: [
-                    IconButton(
-                      icon: const Icon(Icons.share),
-                      onPressed: () => _shareMatch(match),
-                    ),
-                    // More menu (Delete match)
-                    Obx(() {
-                      final isAdmin =
-                          authController.currentUser?.isAdmin ?? false;
-                      if (!isAdmin) return const SizedBox.shrink();
-                      return PopupMenuButton<String>(
-                        onSelected: (value) async {
-                          if (value == 'delete') {
-                            final confirm = await _showDeleteConfirmation(
-                              context,
-                            );
-                            if (confirm == true) {
-                              await matchController.deleteMatch(match.id);
-                              Get.back(); // Go back to Home/Match List after deleting
-                            }
-                          }
-                        },
-                        itemBuilder:
-                            (context) => [
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.delete, color: Colors.red),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Delete Match',
-                                      style: GoogleFonts.inter(
-                                        color: Colors.red,
-                                        fontWeight: FontWeight.bold,
+            final isCompleted = match.status == AppConstants.matchCompleted;
+            final tabLength = isCompleted ? 3 : 4;
+
+            return DefaultTabController(
+              length: tabLength,
+              child: NestedScrollView(
+                headerSliverBuilder:
+                    (context, innerBoxIsScrolled) => [
+                      // Score header
+                      SliverAppBar(
+                        expandedHeight: 250,
+                        pinned: true,
+                        backgroundColor:
+                            isDark
+                                ? const Color(0xFF111827)
+                                : AppTheme.primaryGreen,
+                        flexibleSpace: FlexibleSpaceBar(
+                          collapseMode: CollapseMode.none,
+                          background: MatchHeaderWidget(
+                            match: match,
+                            isDark: isDark,
+                          ),
+                        ),
+                        centerTitle: true,
+                        title: Text(
+                          innerBoxIsScrolled
+                              ? '${match.teamAScore.runs}/${match.teamAScore.wickets} vs ${match.teamBScore.runs}/${match.teamBScore.wickets}'
+                              : match.title,
+                          style: GoogleFonts.outfit(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        actions: [
+                          IconButton(
+                            icon: const Icon(Icons.share),
+                            onPressed: () => _shareMatch(match),
+                          ),
+                          // More menu (Delete match)
+                          Obx(() {
+                            final isAdmin =
+                                authController.currentUser?.isAdmin ?? false;
+                            if (!isAdmin) return const SizedBox.shrink();
+                            return PopupMenuButton<String>(
+                              onSelected: (value) async {
+                                if (value == 'delete') {
+                                  final confirm = await _showDeleteConfirmation(
+                                    context,
+                                  );
+                                  if (confirm == true) {
+                                    await matchController.deleteMatch(match.id);
+                                    Get.back(); // Go back to Home/Match List after deleting
+                                  }
+                                }
+                              },
+                              itemBuilder:
+                                  (context) => [
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.delete,
+                                            color: Colors.red,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Delete Match',
+                                            style: GoogleFonts.inter(
+                                              color: Colors.red,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
-                                ),
-                              ),
-                            ],
-                      );
-                    }),
-                  ],
-                  bottom: TabsWidget(
-                    controller: _tabController,
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-          body: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildLiveTab(
-                match,
-                matchController.players,
-                scoringController,
-                isDark,
-              ),
-              _buildSquadsTab(
-                match,
-                matchController.players.values.toList(),
-                isDark,
-              ),
-              ScorecardScreen(match: match, players: matchController.players),
-              _buildInfoTab(match, isDark),
-            ],
-          ),
-        );
-      }),
-      // Animation Overlay
-      Obx(() {
-        final anim = detailController.currentAnimation.value;
-        if (anim == null) return const SizedBox.shrink();
-        
-        return Positioned.fill(
-          child: Container(
-            color: Colors.black.withOpacity(0.5),
-            alignment: Alignment.center,
-            child: Lottie.asset(
-              'assets/lottie/$anim.json',
-              width: 300,
-              height: 300,
-              repeat: false,
-              errorBuilder: (context, error, stackTrace) {
-                // Fallback text if lottie file is missing
-                return Text(
-                  anim.toUpperCase(),
-                  style: GoogleFonts.outfit(
-                    fontSize: 80,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    shadows: [
-                      const Shadow(color: Colors.black, blurRadius: 10),
+                            );
+                          }),
+                        ],
+                        bottom: TabsWidget(
+                          isCompleted: isCompleted,
+                          isDark: isDark,
+                        ),
+                      ),
                     ],
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      }),
-      ],
+                body: TabBarView(
+                  children: [
+                    if (!isCompleted)
+                      _buildLiveTab(
+                        match,
+                        matchController.players,
+                        scoringController,
+                        isDark,
+                      ),
+                    ScorecardScreen(
+                      match: match,
+                      players: matchController.players,
+                    ),
+                    _buildSquadsTab(
+                      match,
+                      matchController.players.values.toList(),
+                      isDark,
+                    ),
+                    _buildInfoTab(match, isDark),
+                  ],
+                ),
+              ),
+            );
+          }),
+          // Animation Overlay
+          Obx(() {
+            final anim = detailController.currentAnimation.value;
+            if (anim == null) return const SizedBox.shrink();
+
+            return Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.5),
+                alignment: Alignment.center,
+                child: Lottie.asset(
+                  'assets/lottie/$anim.json',
+                  width: 300,
+                  height: 300,
+                  repeat: false,
+                  errorBuilder: (context, error, stackTrace) {
+                    // Fallback text if lottie file is missing
+                    return Text(
+                      anim.toUpperCase(),
+                      style: GoogleFonts.outfit(
+                        fontSize: 80,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        shadows: [
+                          const Shadow(color: Colors.black, blurRadius: 10),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          }),
+        ],
       ),
       // Prominent Floating Action Button for Scoring
       floatingActionButton: Obx(() {
@@ -273,6 +289,59 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // ── Chase Bar (2nd innings only) ─────────────────────────────────────
+        Builder(
+          builder: (context) {
+            final initialBattingTeam =
+                match.tossWonBy == 'A'
+                    ? (match.tossDecision == 'bat' ? 'A' : 'B')
+                    : (match.tossDecision == 'bat' ? 'B' : 'A');
+            final isSecondInnings = match.currentInnings != initialBattingTeam;
+
+            if (!isSecondInnings) return const SizedBox.shrink();
+
+            final firstScore =
+                match.currentInnings == 'A'
+                    ? match.teamBScore
+                    : match.teamAScore;
+            final battingScore = match.currentScore;
+            final runsNeeded = (firstScore.runs + 1) - battingScore.runs;
+            final ballsRemaining =
+                (match.totalOvers * 6) -
+                (battingScore.overs * 6 + battingScore.balls);
+
+            if (runsNeeded <= 0 || ballsRemaining <= 0) {
+              return const SizedBox.shrink();
+            }
+
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1A4731), Color(0xFF0D2B1E)],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withOpacity(0.3),
+                ),
+              ),
+              child: Text(
+                '${match.battingTeamName} need${runsNeeded == 1 ? "s" : ""} '
+                '$runsNeeded run${runsNeeded == 1 ? "" : "s"} '
+                'in $ballsRemaining ball${ballsRemaining == 1 ? "" : "s"}',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            );
+          },
+        ),
         // Current batsmen
         if (batsman != null || nonStriker != null)
           _buildCurrentBatsmenCard(batsman, nonStriker, isDark, match),
@@ -1272,6 +1341,18 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
                 Icons.monetization_on_outlined,
                 isDark,
               ),
+              if (match.customRulesEnabled || match.lastPlayerCanPlay) ...[
+                _buildDivider(isDark),
+                _buildModernInfoRow(
+                  'Custom Rules',
+                  '${match.customRulesEnabled ? "• Single Batsman Mode: ON\n" : ""}'
+                      '${match.lastPlayerCanPlay ? "• Last Man Standing: ON\n" : ""}'
+                      '${match.maxBattingOvers != null ? "• Max Batting: ${match.maxBattingOvers} overs/batsman\n" : ""}'
+                      '${match.maxBowlingOvers != null ? "• Max Bowling: ${match.maxBowlingOvers} overs/bowler" : ""}',
+                  Icons.rule_folder_outlined,
+                  isDark,
+                ),
+              ],
               if (match.result != null) ...[
                 _buildDivider(isDark),
                 _buildModernInfoRow(
@@ -1284,86 +1365,145 @@ class _MatchDetailScreenState extends State<MatchDetailScreen>
             ],
           ),
         ),
+        if (match.isCompleted) ...[
+          const SizedBox(height: 24),
+          _buildRematchButton(match, isDark),
+        ],
       ],
     );
   }
 
-  Widget _buildDivider(bool isDark) {
-    return Divider(
-      height: 1,
-      thickness: 1,
-      color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
-      indent: 16,
-      endIndent: 16,
-    );
-  }
+  Widget _buildRematchButton(MatchModel match, bool isDark) {
+    // Only show for admins and super admins
+    final isAdmin = authController.currentUser?.isAdmin ?? false;
+    if (!isAdmin) return const SizedBox.shrink();
 
-  Widget _buildModernInfoRow(
-    String label,
-    String value,
-    IconData icon,
-    bool isDark,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color:
-                  isDark
-                      ? Colors.white.withOpacity(0.05)
-                      : AppTheme.primaryGreen.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
+    // Only show on the latest completed match and if no live match exists
+    final latestMatch =
+        matchController.completedMatches.isNotEmpty
+            ? matchController.completedMatches.first
+            : null;
+    final isLatest = latestMatch?.id == match.id;
+    if (!isLatest || matchController.liveMatches.isNotEmpty)
+      return const SizedBox.shrink();
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => MatchDialogs.showRematchDialog(context, match),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppTheme.primaryGreen, Color(0xFF00BFA5)],
             ),
-            child: Icon(
-              icon,
-              size: 20,
-              color: isDark ? Colors.white70 : AppTheme.primaryGreen,
-            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primaryGreen.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: isDark ? Colors.white54 : Colors.black54,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.5,
-                  ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.refresh_rounded, color: Colors.white, size: 24),
+              const SizedBox(width: 12),
+              Text(
+                'CONTINUE WITH THESE TEAMS',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  letterSpacing: 0.5,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.w600,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  void _shareMatch(MatchModel match) {
-    Share.share(
-      '🏏 Watch live cricket!\n\n'
-      '${match.title}\n'
-      '${match.teamAName} vs ${match.teamBName}\n\n'
-      'Download Box Cricket App to watch live!',
-    );
-  }
+Widget _buildDivider(bool isDark) {
+  return Divider(
+    height: 1,
+    thickness: 1,
+    color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+    indent: 16,
+    endIndent: 16,
+  );
+}
+
+Widget _buildModernInfoRow(
+  String label,
+  String value,
+  IconData icon,
+  bool isDark,
+) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color:
+                isDark
+                    ? Colors.white.withOpacity(0.05)
+                    : AppTheme.primaryGreen.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: isDark ? Colors.white70 : AppTheme.primaryGreen,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: isDark ? Colors.white54 : Colors.black54,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+void _shareMatch(MatchModel match) {
+  Share.share(
+    '🏏 Watch live cricket!\n\n'
+    '${match.title}\n'
+    '${match.teamAName} vs ${match.teamBName}\n\n'
+    'Download Box Cricket App to watch live!',
+  );
 }
 
 // ─── Match Header Widgets ────────────────────────────
@@ -1515,7 +1655,7 @@ class MatchHeaderWidget extends StatelessWidget {
                                 fontSize: 12,
                               ),
                             ),
-                            if (match.currentInnings == 'B') ...[
+                            if (match.isSecondInnings) ...[
                               Container(
                                 margin: const EdgeInsets.symmetric(
                                   horizontal: 8,
@@ -1525,7 +1665,7 @@ class MatchHeaderWidget extends StatelessWidget {
                                 color: Colors.white54,
                               ),
                               Text(
-                                'RRR: ${match.teamBScore.requiredRunRate(match.teamAScore.runs + 1, match.totalOvers).toStringAsFixed(2)}',
+                                'Target: ${match.targetScore}',
                                 style: GoogleFonts.inter(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600,
@@ -1631,10 +1771,14 @@ class TeamScoreWidget extends StatelessWidget {
 }
 
 class TabsWidget extends StatelessWidget implements PreferredSizeWidget {
-  final TabController controller;
+  final bool isCompleted;
   final bool isDark;
 
-  const TabsWidget({super.key, required this.controller, required this.isDark});
+  const TabsWidget({
+    super.key,
+    required this.isCompleted,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1649,7 +1793,6 @@ class TabsWidget extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
       child: TabBar(
-        controller: controller,
         indicatorColor: AppTheme.primaryGreen,
         indicatorWeight: 3,
         labelColor: AppTheme.primaryGreen,
@@ -1657,11 +1800,11 @@ class TabsWidget extends StatelessWidget implements PreferredSizeWidget {
         labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700),
         unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500),
         indicatorSize: TabBarIndicatorSize.label,
-        tabs: const [
-          Tab(text: 'Live'),
-          Tab(text: 'Squads'),
-          Tab(text: 'Scorecard'),
-          Tab(text: 'Info'),
+        tabs: [
+          if (!isCompleted) const Tab(text: 'Live'),
+          const Tab(text: 'Scoreboard'),
+          const Tab(text: 'Squads'),
+          const Tab(text: 'Info'),
         ],
       ),
     );
