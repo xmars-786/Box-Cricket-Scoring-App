@@ -1,4 +1,4 @@
-name: box_cricket
+name: x_cricket
 description: A Box Cricket Scoring App with real-time updates, similar to Cricbuzz.
 publish_to: 'none'
 version: 1.0.0+1
@@ -31,6 +31,9 @@ dependencies:
   http: ^1.6.0
   flutter_staggered_grid_view: ^0.7.0
   lottie: ^3.3.1
+  pdf: ^3.11.3
+  printing: ^5.14.3
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -48,15 +51,11 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/app_icon.png"
+  image_path: "assets/images/logo.png"
 
 flutter_native_splash:
-  color: "#ffffff"
+  color: "#667EEA"
   color_dark: "#0D1B2A"
-  image: "assets/images/app_icon.png"
-  image_dark: "assets/images/app_icon.png"
   android_12:
-    color: "#ffffff"
+    color: "#667EEA"
     color_dark: "#0D1B2A"
-    image: "assets/images/app_icon.png"
-    image_dark: "assets/images/app_icon.png"

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app.dart';
 import 'core/controllers/auth_controller.dart';
@@ -14,7 +16,8 @@ import 'firebase_options.dart';
 /// Entry point for the Box Cricket Scoring App.
 /// Initializes Firebase and sets up GetX-based state management.
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   // Initialize Firebase
   try {
@@ -34,5 +37,13 @@ void main() async {
   Get.put(ScoringController()); // Depends on AuthController
   Get.put(ConnectivityController());
 
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
   runApp(const BoxCricketApp());
+
+  // Remove native splash once initialization is done
+  FlutterNativeSplash.remove();
 }

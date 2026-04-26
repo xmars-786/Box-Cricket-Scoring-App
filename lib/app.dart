@@ -1,6 +1,8 @@
+import 'package:x_cricket/core/constants/app_constants.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
+import 'package:lottie/lottie.dart';
 
 import 'core/controllers/auth_controller.dart';
 import 'core/controllers/theme_controller.dart';
@@ -18,29 +20,33 @@ class BoxCricketApp extends StatelessWidget {
     final themeController = Get.find<ThemeController>();
     final authController = Get.find<AuthController>();
 
-    return Obx(() => GetMaterialApp(
-      title: 'Box Cricket',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: themeController.themeMode,
-      getPages: AppRoutes.pages,
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: const TextScaler.linear(0.9),
-          ),
-          child: child!,
-        );
-      },
-      home: authController.isLoading
-          ? const _SplashScreen()
-          : authController.isAuthenticated
-              ? (authController.currentUser!.isApproved || authController.currentUser!.isAdmin)
-                  ? const HomeScreen()
-                  : const _WaitingApprovalScreen()
-              : const LoginScreen(),
-    ));
+    return Obx(
+      () => GetMaterialApp(
+        title: AppConstants.appName,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: themeController.themeMode,
+        getPages: AppRoutes.pages,
+        builder: (context, child) {
+          return MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(0.9)),
+            child: child!,
+          );
+        },
+        home:
+            authController.isLoading
+                ? const _SplashScreen()
+                : authController.isAuthenticated
+                ? (authController.currentUser!.isApproved ||
+                        authController.currentUser!.isAdmin)
+                    ? const HomeScreen()
+                    : const _WaitingApprovalScreen()
+                : const LoginScreen(),
+      ),
+    );
   }
 }
 
@@ -57,11 +63,18 @@ class _WaitingApprovalScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.hourglass_empty_rounded, size: 80, color: AppTheme.vibrantOrange),
+              const Icon(
+                Icons.hourglass_empty_rounded,
+                size: 80,
+                color: AppTheme.vibrantOrange,
+              ),
               const SizedBox(height: 24),
               Text(
                 'Waiting for Approval',
-                style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.bold),
+                style: GoogleFonts.outfit(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               const Text(
@@ -95,9 +108,10 @@ class _SplashScreen extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [const Color(0xFF0D1B2A), const Color(0xFF1B263B)]
-                : [const Color(0xFF667EEA), const Color(0xFF764BA2)],
+            colors:
+                isDark
+                    ? [const Color(0xFF0D1B2A), const Color(0xFF1B263B)]
+                    : [const Color(0xFF667EEA), const Color(0xFF764BA2)],
           ),
         ),
         child: SafeArea(
@@ -121,7 +135,7 @@ class _SplashScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Box Cricket',
+                      AppConstants.appName,
                       style: GoogleFonts.outfit(
                         fontSize: 36,
                         fontWeight: FontWeight.bold,
@@ -153,7 +167,7 @@ class _SplashScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 24.0),
                   child: Text(
-                    'developed By XMARS',
+                    'DEVELOPED BY XMARS v1.0.0',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

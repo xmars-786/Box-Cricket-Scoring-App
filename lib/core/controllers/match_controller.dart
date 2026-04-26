@@ -33,16 +33,20 @@ class MatchController extends GetxController {
   final Rxn<MatchModel> _selectedMatch = Rxn<MatchModel>();
   final RxMap<String, PlayerModel> _players = <String, PlayerModel>{}.obs;
   final RxBool _isLoading = false.obs;
+  final RxBool _isMyMatchesLoading = false.obs;
+  final RxBool _isHistoryLoading = false.obs;
   final RxnString _error = RxnString();
 
   StreamSubscription? _liveMatchesSub;
+  StreamSubscription? _myMatchesSub;
+  StreamSubscription? _historyMatchesSub;
   StreamSubscription? _selectedMatchSub;
   StreamSubscription? _playersSub;
 
   @override
   void onInit() {
     super.onInit();
-    
+
     // Use delay to avoid 'setState during build' error
     Future.microtask(() {
       listenToLiveMatches();
@@ -72,7 +76,10 @@ class MatchController extends GetxController {
   MatchModel? get selectedMatch => _selectedMatch.value;
   Rxn<MatchModel> get selectedMatchRx => _selectedMatch;
   Map<String, PlayerModel> get players => _players;
-  bool get isLoading => _isLoading.value;
+  bool get isLoading =>
+      _isLoading.value || _isMyMatchesLoading.value || _isHistoryLoading.value;
+  bool get isMyMatchesLoading => _isMyMatchesLoading.value;
+  bool get isHistoryLoading => _isHistoryLoading.value;
   String? get error => _error.value;
 
   // ─── Listen to Live Matches ─────────────────────────
@@ -107,42 +114,81 @@ class MatchController extends GetxController {
     if (refresh) {
       _lastMyMatchDoc = null;
       _hasMoreMyMatches.value = true;
-      _myMatches.clear();
     }
 
-    if (!_hasMoreMyMatches.value || _isLoading.value) return;
+    if (!_hasMoreMyMatches.value || _isMyMatchesLoading.value) return;
 
     try {
-      Future.microtask(() => _isLoading.value = true);
+      Future.microtask(() => _isMyMatchesLoading.value = true);
 
-      var query = _firestore
-          .collection(AppConstants.matchesCollection)
-          .where('created_by', isEqualTo: userId)
-          .orderBy('created_at', descending: true)
-          .limit(_pageSize);
+      // For the first page, we'll use a stream listener to keep it live
+      if (_lastMyMatchDoc == null) {
+        _myMatchesSub?.cancel();
+        _myMatchesSub = _firestore
+            .collection(AppConstants.matchesCollection)
+            .where('created_by', isEqualTo: userId)
+            .orderBy('created_at', descending: true)
+            .limit(_pageSize)
+            .snapshots()
+            .listen(
+              (snapshot) {
+                if (snapshot.docs.isNotEmpty) {
+                  _lastMyMatchDoc = snapshot.docs.last;
+                  final matches =
+                      snapshot.docs
+                          .map((doc) => MatchModel.fromFirestore(doc))
+                          .toList();
 
-      if (_lastMyMatchDoc != null) {
-        query = query.startAfterDocument(_lastMyMatchDoc!);
+                  _myMatches.assignAll(matches);
+
+                  if (snapshot.docs.length < _pageSize) {
+                    _hasMoreMyMatches.value = false;
+                  }
+                } else {
+                  _myMatches.clear();
+                  _hasMoreMyMatches.value = false;
+                }
+                _isMyMatchesLoading.value = false;
+                _error.value = null;
+              },
+              onError: (e) {
+                _error.value = 'Error listening to matches: $e';
+                _isMyMatchesLoading.value = false;
+              },
+            );
+      } else {
+        // Pagination for subsequent pages
+        var query = _firestore
+            .collection(AppConstants.matchesCollection)
+            .where('created_by', isEqualTo: userId)
+            .orderBy('created_at', descending: true)
+            .startAfterDocument(_lastMyMatchDoc!)
+            .limit(_pageSize);
+
+        final snapshot = await query.get();
+
+        if (snapshot.docs.length < _pageSize) {
+          _hasMoreMyMatches.value = false;
+        }
+
+        if (snapshot.docs.isNotEmpty) {
+          _lastMyMatchDoc = snapshot.docs.last;
+          final newMatches =
+              snapshot.docs
+                  .map((doc) => MatchModel.fromFirestore(doc))
+                  .toList();
+
+          for (var match in newMatches) {
+            if (!_myMatches.any((m) => m.id == match.id)) {
+              _myMatches.add(match);
+            }
+          }
+        }
+        _isMyMatchesLoading.value = false;
       }
-
-      final snapshot = await query.get();
-
-      if (snapshot.docs.length < _pageSize) {
-        _hasMoreMyMatches.value = false;
-      }
-
-      if (snapshot.docs.isNotEmpty) {
-        _lastMyMatchDoc = snapshot.docs.last;
-        final newMatches =
-            snapshot.docs.map((doc) => MatchModel.fromFirestore(doc)).toList();
-        _myMatches.addAll(newMatches);
-      }
-
-      _isLoading.value = false;
-      _error.value = null;
     } catch (e) {
       _error.value = 'Error loading matches: $e';
-      _isLoading.value = false;
+      _isMyMatchesLoading.value = false;
       print('Pagination error: $e');
     }
   }
@@ -152,41 +198,80 @@ class MatchController extends GetxController {
     if (refresh) {
       _lastHistoryDoc = null;
       _hasMoreHistory.value = true;
-      _completedMatches.clear();
     }
 
-    if (!_hasMoreHistory.value || _isLoading.value) return;
+    if (!_hasMoreHistory.value || _isHistoryLoading.value) return;
 
     try {
-      Future.microtask(() => _isLoading.value = true);
+      Future.microtask(() => _isHistoryLoading.value = true);
 
-      var query = _firestore
-          .collection(AppConstants.matchesCollection)
-          .where('status', isEqualTo: AppConstants.matchCompleted)
-          .orderBy('created_at', descending: true)
-          .limit(_pageSize);
+      if (_lastHistoryDoc == null) {
+        _historyMatchesSub?.cancel();
+        _historyMatchesSub = _firestore
+            .collection(AppConstants.matchesCollection)
+            .where('status', isEqualTo: AppConstants.matchCompleted)
+            .orderBy('created_at', descending: true)
+            .limit(_pageSize)
+            .snapshots()
+            .listen(
+              (snapshot) {
+                if (snapshot.docs.isNotEmpty) {
+                  _lastHistoryDoc = snapshot.docs.last;
+                  final matches =
+                      snapshot.docs
+                          .map((doc) => MatchModel.fromFirestore(doc))
+                          .toList();
 
-      if (_lastHistoryDoc != null) {
-        query = query.startAfterDocument(_lastHistoryDoc!);
+                  _completedMatches.assignAll(matches);
+
+                  if (snapshot.docs.length < _pageSize) {
+                    _hasMoreHistory.value = false;
+                  }
+                } else {
+                  _completedMatches.clear();
+                  _hasMoreHistory.value = false;
+                }
+                _isHistoryLoading.value = false;
+                _error.value = null;
+              },
+              onError: (e) {
+                _error.value = 'Error listening to history: $e';
+                _isHistoryLoading.value = false;
+              },
+            );
+      } else {
+        // Pagination for subsequent pages
+        var query = _firestore
+            .collection(AppConstants.matchesCollection)
+            .where('status', isEqualTo: AppConstants.matchCompleted)
+            .orderBy('created_at', descending: true)
+            .startAfterDocument(_lastHistoryDoc!)
+            .limit(_pageSize);
+
+        final snapshot = await query.get();
+
+        if (snapshot.docs.length < _pageSize) {
+          _hasMoreHistory.value = false;
+        }
+
+        if (snapshot.docs.isNotEmpty) {
+          _lastHistoryDoc = snapshot.docs.last;
+          final newMatches =
+              snapshot.docs
+                  .map((doc) => MatchModel.fromFirestore(doc))
+                  .toList();
+
+          for (var match in newMatches) {
+            if (!_completedMatches.any((m) => m.id == match.id)) {
+              _completedMatches.add(match);
+            }
+          }
+        }
+        _isHistoryLoading.value = false;
       }
-
-      final snapshot = await query.get();
-
-      if (snapshot.docs.length < _pageSize) {
-        _hasMoreHistory.value = false;
-      }
-
-      if (snapshot.docs.isNotEmpty) {
-        _lastHistoryDoc = snapshot.docs.last;
-        final newMatches =
-            snapshot.docs.map((doc) => MatchModel.fromFirestore(doc)).toList();
-        _completedMatches.addAll(newMatches);
-      }
-
-      _isLoading.value = false;
     } catch (e) {
       _error.value = 'Error loading match history: $e';
-      _isLoading.value = false;
+      _isHistoryLoading.value = false;
       print('Pagination error: $e');
     }
   }
@@ -280,10 +365,10 @@ class MatchController extends GetxController {
       }
 
       await batch.commit();
-      
+
       // Refresh the list immediately so it shows up in "My Matches"
       loadMyMatches(createdBy, refresh: true);
-      
+
       _isLoading.value = false;
       return matchId;
     } catch (e) {
@@ -333,6 +418,13 @@ class MatchController extends GetxController {
           'status': AppConstants.matchLive,
           'started_at': Timestamp.now(),
         });
+
+    // Refresh lists to reflect status change
+    final authController = Get.find<AuthController>();
+    if (authController.userId != null) {
+      loadMyMatches(authController.userId!, refresh: true);
+    }
+    loadCompletedMatches(refresh: true);
   }
 
   // ─── End Match ─────────────────────────────────────
@@ -345,6 +437,13 @@ class MatchController extends GetxController {
           'completed_at': Timestamp.now(),
           'result': result,
         });
+
+    // Refresh lists to reflect status change
+    final authController = Get.find<AuthController>();
+    if (authController.userId != null) {
+      loadMyMatches(authController.userId!, refresh: true);
+    }
+    loadCompletedMatches(refresh: true);
   }
 
   // ─── Delete Match ──────────────────────────────────
@@ -423,11 +522,12 @@ class MatchController extends GetxController {
       _isLoading.value = true;
 
       // 1. Fetch players from the existing match's subcollection
-      final playersSnap = await _firestore
-          .collection(AppConstants.matchesCollection)
-          .doc(match.id)
-          .collection('players')
-          .get();
+      final playersSnap =
+          await _firestore
+              .collection(AppConstants.matchesCollection)
+              .doc(match.id)
+              .collection('players')
+              .get();
 
       // 2. Create fresh PlayerModel objects (reset all stats)
       final List<PlayerModel> teamAPlayers = [];
@@ -436,7 +536,7 @@ class MatchController extends GetxController {
       for (var doc in playersSnap.docs) {
         final data = doc.data();
         final playerId = data['id'] ?? doc.id;
-        
+
         // Create a clean player object with 0 stats
         final cleanPlayer = PlayerModel(
           id: playerId,
@@ -446,16 +546,30 @@ class MatchController extends GetxController {
           profileImageUrl: data['profile_image_url'],
         );
 
-        if (cleanPlayer.teamId == 'A' || match.teamAPlayers.contains(playerId)) {
+        if (cleanPlayer.teamId == 'A' ||
+            match.teamAPlayers.contains(playerId)) {
           teamAPlayers.add(cleanPlayer);
         } else {
           teamBPlayers.add(cleanPlayer);
         }
       }
 
-      // 3. Create the new match
+      // 3. Create the new match title logic
+      String baseTitle = match.title;
+
+      int matchNumber = 1;
+
+      // Regex to find trailing number (e.g., "Match 1" -> "Match", "1")
+      final numberRegex = RegExp(r'^(.*?)\s+(\d+)$');
+      final matchResult = numberRegex.firstMatch(baseTitle);
+
+      if (matchResult != null) {
+        baseTitle = (matchResult.group(1) ?? baseTitle).trim();
+        matchNumber = int.parse(matchResult.group(2) ?? '1') + 1;
+      }
+
       final newMatchId = await createMatch(
-        title: '${match.title} (Rematch)',
+        title: '$baseTitle $matchNumber',
         createdBy: currentUserId,
         totalOvers: match.totalOvers,
         teamAName: match.teamAName,
@@ -500,6 +614,8 @@ class MatchController extends GetxController {
   @override
   void onClose() {
     _liveMatchesSub?.cancel();
+    _myMatchesSub?.cancel();
+    _historyMatchesSub?.cancel();
     _selectedMatchSub?.cancel();
     _playersSub?.cancel();
     super.onClose();

@@ -1,3 +1,4 @@
+import 'package:x_cricket/core/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
@@ -19,121 +20,123 @@ class MatchDialogs {
       StatefulBuilder(
         builder: (context, setModalState) {
           final isDark = Theme.of(context).brightness == Brightness.dark;
-          return Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1B263B) : Colors.white,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Rematch Toss',
-                  style: GoogleFonts.outfit(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+            return SafeArea(
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1B263B) : Colors.white,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Start a new match with same teams and rules.',
-                  style: GoogleFonts.inter(color: Colors.grey, fontSize: 13),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Who won the toss?',
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _buildTossChoice(
-                        match.teamAName,
-                        'A',
-                        tossWonBy == 'A',
-                        () => setModalState(() => tossWonBy = 'A'),
-                        isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTossChoice(
-                        match.teamBName,
-                        'B',
-                        tossWonBy == 'B',
-                        () => setModalState(() => tossWonBy = 'B'),
-                        isDark,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Winner elected to?',
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTossChoice(
-                        'BAT',
-                        'bat',
-                        tossDecision == 'bat',
-                        () => setModalState(() => tossDecision = 'bat'),
-                        isDark,
-                        icon: Icons.sports_cricket,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTossChoice(
-                        'BOWL',
-                        'bowl',
-                        tossDecision == 'bowl',
-                        () => setModalState(() => tossDecision = 'bowl'),
-                        isDark,
-                        icon: Icons.sports_baseball,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed:
-                        () => _executeRematch(match, tossWonBy, tossDecision),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryGreen,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      'START REMATCH',
-                      style: GoogleFonts.inter(
+                    Text(
+                      'Rematch Toss',
+                      style: GoogleFonts.outfit(
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Start a new match with same teams and rules.',
+                      style: GoogleFonts.inter(color: Colors.grey, fontSize: 13),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Who won the toss?',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTossChoice(
+                            match.teamAName,
+                            'A',
+                            tossWonBy == 'A',
+                            () => setModalState(() => tossWonBy = 'A'),
+                            isDark,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildTossChoice(
+                            match.teamBName,
+                            'B',
+                            tossWonBy == 'B',
+                            () => setModalState(() => tossWonBy = 'B'),
+                            isDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Winner elected to?',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTossChoice(
+                            'BAT',
+                            'bat',
+                            tossDecision == 'bat',
+                            () => setModalState(() => tossDecision = 'bat'),
+                            isDark,
+                            icon: Icons.sports_cricket,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildTossChoice(
+                            'BOWL',
+                            'bowl',
+                            tossDecision == 'bowl',
+                            () => setModalState(() => tossDecision = 'bowl'),
+                            isDark,
+                            icon: Icons.sports_baseball,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed:
+                            () => _executeRematch(match, tossWonBy, tossDecision),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryGreen,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          'START REMATCH',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          );
+              ),
+            );
         },
       ),
       isScrollControlled: true,
@@ -218,7 +221,11 @@ class MatchDialogs {
 
       if (newMatchId != null) {
         // Navigate to new scoring screen and remove old one from stack
-        Get.off(() => ScoringScreen(matchId: newMatchId));
+        Get.offNamed(
+          AppRoutes.scoring,
+          arguments: newMatchId,
+          preventDuplicates: false,
+        );
         UIUtils.showSuccess('Rematch started!');
       }
     } catch (e) {

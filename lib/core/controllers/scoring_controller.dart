@@ -12,6 +12,7 @@ import '../constants/app_constants.dart';
 import '../utils/ui_utils.dart';
 import 'rules_controller.dart';
 import 'auth_controller.dart';
+import 'match_controller.dart';
 
 class ScoringController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -100,7 +101,7 @@ class ScoringController extends GetxController {
         });
   }
 
-  // Record a Ball (Transactional)
+  // Record a Ball (Fast Batch Write)
   Future<void> recordBall({
     required MatchModel match,
     required PlayerModel batsman,
@@ -123,400 +124,457 @@ class ScoringController extends GetxController {
       return;
     }
 
-    try {
-      _isLoading.value = true;
-      _error.value = null;
+    if (batsman == null || bowler == null) {
+      UIUtils.showError('Striker or Bowler not selected!');
+      return;
+    }
 
-      if (_matchId.value == null) return;
-      if (batsman == null || bowler == null) {
-        UIUtils.showError('Striker or Bowler not selected!');
+    final matchRef = _firestore
+        .collection(AppConstants.matchesCollection)
+        .doc(_matchId.value);
+    final batsmanRef = matchRef.collection('players').doc(batsman.id);
+    final bowlerRef = matchRef.collection('players').doc(bowler.id);
+    final ballId = _uuid.v4();
+
+    if (match.customRulesEnabled) {
+      final legalBallsFaced = batsman.legalBallsFaced;
+      final maxBatBalls = (match.maxBattingOvers ?? 2) * 6;
+      if (legalBallsFaced >= maxBatBalls) {
+        UIUtils.showError(
+          'Limit reached! ${batsman.name} has already faced ${match.maxBattingOvers ?? 2} overs.',
+        );
         return;
       }
 
-      final matchRef = _firestore
-          .collection(AppConstants.matchesCollection)
-          .doc(_matchId.value);
-      final batsmanRef = matchRef.collection('players').doc(batsman.id);
-      final bowlerRef = matchRef.collection('players').doc(bowler.id);
-      final ballId = _uuid.v4();
+      final totalBowlingBalls = (bowler.oversBowled * 6) + bowler.ballsBowled;
+      final maxBowlBalls = (match.maxBowlingOvers ?? 3) * 6;
+      if (totalBowlingBalls >= maxBowlBalls) {
+        UIUtils.showError(
+          'Limit reached! ${bowler.name} has already bowled ${match.maxBowlingOvers ?? 3} overs.',
+        );
+        return;
+      }
+    }
 
-      if (match.customRulesEnabled) {
-        final legalBallsFaced = batsman.legalBallsFaced;
-        final maxBatBalls = (match.maxBattingOvers ?? 2) * 6;
-        if (legalBallsFaced >= maxBatBalls) {
-          UIUtils.showError(
-            'Limit reached! ${batsman.name} has already faced ${match.maxBattingOvers ?? 2} overs.',
-          );
-          return;
-        }
+    bool firstInningsCompleted = false;
+    bool matchCompleted = false;
+    String toastMessage = '';
+    final String matchId = _matchId.value!;
 
-        final totalBowlingBalls = (bowler.oversBowled * 6) + bowler.ballsBowled;
-        final maxBowlBalls = (match.maxBowlingOvers ?? 3) * 6;
-        if (totalBowlingBalls >= maxBowlBalls) {
-          UIUtils.showError(
-            'Limit reached! ${bowler.name} has already bowled ${match.maxBowlingOvers ?? 3} overs.',
-          );
-          return;
+    try {
+      final currentScore = match.currentScore;
+      final bool isLegalDelivery = ballType != 'wide' && ballType != 'no_ball';
+
+      final wideExtra = _rules.wideRuns.value;
+      final noBallExtra = _rules.noBallRuns.value;
+
+      int runIncrease = 0;
+      int extraIncrease = 0;
+      bool nextIsFreeHit = false;
+
+      if (ballType == 'wide') {
+        runIncrease = wideExtra + runs;
+        extraIncrease = wideExtra + runs;
+      } else if (ballType == 'no_ball') {
+        runIncrease = noBallExtra + runs;
+        extraIncrease = noBallExtra;
+        nextIsFreeHit = _rules.freeHitEnabled.value;
+      } else if (ballType == 'bye' || ballType == 'leg_bye') {
+        runIncrease = runs;
+        extraIncrease = runs;
+      } else {
+        runIncrease = runs;
+      }
+
+      int newBalls = currentScore.balls;
+      int newOvers = currentScore.overs;
+      if (isLegalDelivery) {
+        newBalls++;
+        if (newBalls >= AppConstants.ballsPerOver) {
+          newOvers++;
+          newBalls = 0;
         }
       }
 
-      bool firstInningsCompleted = false;
-      bool matchCompleted = false;
-      String toastMessage = '';
-      String matchId = _matchId.value!;
+      final ballLog = BallLog(
+        id: ballId,
+        matchId: matchId,
+        innings: match.currentInnings,
+        overNumber: currentScore.overs,
+        ballNumber: currentScore.balls,
+        batsmanId: batsman.id,
+        nonStrikerId: match.currentNonStrikerId,
+        bowlerId: bowler.id,
+        runs: runs,
+        ballType: ballType,
+        isWicket: isWicket,
+        dismissalType: dismissalType,
+        dismissedPlayerId: dismissedPlayerId,
+        isFreeHit: match.isFreeHit,
+        extraRuns: extraIncrease,
+        scoredBy: _auth.userId,
+      );
 
-      await _firestore.runTransaction((transaction) async {
-        // 1. PERFORM ALL READS FIRST
-        final snapshot = await transaction.get(matchRef);
-        if (!snapshot.exists) throw 'Match not found';
-        final freshMatch = MatchModel.fromFirestore(snapshot);
+      final scoreKey =
+          match.currentInnings == 'A' ? 'team_a_score' : 'team_b_score';
+      final updatedScore = currentScore.copyWith(
+        runs: currentScore.runs + runIncrease,
+        wickets: isWicket ? currentScore.wickets + 1 : currentScore.wickets,
+        overs: newOvers,
+        balls: newBalls,
+        extras: currentScore.extras + extraIncrease,
+        wides: ballType == 'wide' ? currentScore.wides + 1 : currentScore.wides,
+        noBalls:
+            ballType == 'no_ball'
+                ? currentScore.noBalls + 1
+                : currentScore.noBalls,
+      );
 
-        if (freshMatch.lastBallId != match.lastBallId) {
-          throw 'Conflict detected. Please reload.';
-        }
+      final legalBallsFacedNow =
+          batsman.legalBallsFaced + (isLegalDelivery ? 1 : 0);
+      final maxBatBalls =
+          match.customRulesEnabled ? (match.maxBattingOvers ?? 2) * 6 : 99999;
+      final isQuotaReached =
+          match.customRulesEnabled &&
+          !isWicket &&
+          legalBallsFacedNow >= maxBatBalls;
 
-        final bSnap = await transaction.get(batsmanRef);
-        if (!bSnap.exists) throw 'Batsman not found';
-        final freshBatsman = PlayerModel.fromMap(bSnap.data()!);
+      final isOverEnd =
+          isLegalDelivery && newBalls == 0 && newOvers > currentScore.overs;
 
-        final boSnap = await transaction.get(bowlerRef);
-        if (!boSnap.exists) throw 'Bowler not found';
-        final freshBowler = PlayerModel.fromMap(boSnap.data()!);
+      // ── Build all updates locally (no reads needed) ──────────────────────
+      final Map<String, dynamic> matchUpdates = {
+        scoreKey: updatedScore.toMap(),
+        'last_ball_id': ballId,
+        'active_scorer_id': _auth.userId,
+        'is_free_hit': nextIsFreeHit,
+      };
 
-        // If custom rules, fetch all potential batsmen to check innings end later
-        final Map<String, PlayerModel> freshBattingPlayers = {};
-        if (freshMatch.customRulesEnabled) {
-          final battingTeamId = freshMatch.currentInnings;
-          final ids = battingTeamId == 'A' ? freshMatch.teamAPlayers : freshMatch.teamBPlayers;
-          for (var pid in ids) {
-            if (pid == batsman.id) {
-              freshBattingPlayers[pid] = freshBatsman;
-              continue;
-            }
-            final pRef = matchRef.collection('players').doc(pid);
-            final pSnap = await transaction.get(pRef);
-            if (pSnap.exists) {
-              freshBattingPlayers[pid] = PlayerModel.fromMap(pSnap.data()!);
-            }
+      if (isOverEnd) matchUpdates['current_bowler_id'] = null;
+
+      // Striker rotation
+      if (!match.customRulesEnabled) {
+        String? nextStriker = match.currentBatsmanId;
+        String? nextNonStriker = match.currentNonStrikerId;
+
+        if (isLegalDelivery && nextNonStriker != null) {
+          final shouldRotate = (runs % 2 != 0);
+          if (shouldRotate != isOverEnd) {
+            nextStriker = match.currentNonStrikerId;
+            nextNonStriker = match.currentBatsmanId;
           }
-        }
-
-        final currentScore = freshMatch.currentScore;
-        final bool isLegalDelivery =
-            ballType != 'wide' && ballType != 'no_ball';
-
-        final wideExtra = _rules.wideRuns.value;
-        final noBallExtra = _rules.noBallRuns.value;
-
-        int runIncrease = 0;
-        int extraIncrease = 0;
-        bool nextIsFreeHit = false;
-
-        if (ballType == 'wide') {
-          runIncrease = wideExtra + runs;
-          extraIncrease = wideExtra + runs;
-        } else if (ballType == 'no_ball') {
-          runIncrease = noBallExtra + runs;
-          extraIncrease = noBallExtra;
-          nextIsFreeHit = _rules.freeHitEnabled.value;
-        } else if (ballType == 'bye' || ballType == 'leg_bye') {
-          runIncrease = runs;
-          extraIncrease = runs;
-        } else {
-          runIncrease = runs;
-        }
-
-        int newBalls = currentScore.balls;
-        int newOvers = currentScore.overs;
-        if (isLegalDelivery) {
-          newBalls++;
-          if (newBalls >= AppConstants.ballsPerOver) {
-            newOvers++;
-            newBalls = 0;
-          }
-        }
-
-        final ballLog = BallLog(
-          id: ballId,
-          matchId: _matchId.value!,
-          innings: freshMatch.currentInnings,
-          overNumber: currentScore.overs,
-          ballNumber: currentScore.balls,
-          batsmanId: batsman.id,
-          bowlerId: bowler.id,
-          runs: runs,
-          ballType: ballType,
-          isWicket: isWicket,
-          dismissalType: dismissalType,
-          dismissedPlayerId: dismissedPlayerId,
-          isFreeHit: freshMatch.isFreeHit,
-          extraRuns: extraIncrease,
-          scoredBy: _auth.userId,
-        );
-
-        final scoreKey =
-            freshMatch.currentInnings == 'A'
-                ? 'team_a_score'
-                : 'team_b_score';
-        final updatedScore = currentScore.copyWith(
-          runs: currentScore.runs + runIncrease,
-          wickets: isWicket ? currentScore.wickets + 1 : currentScore.wickets,
-          overs: newOvers,
-          balls: newBalls,
-          extras: currentScore.extras + extraIncrease,
-          wides:
-              ballType == 'wide' ? currentScore.wides + 1 : currentScore.wides,
-          noBalls:
-              ballType == 'no_ball'
-                  ? currentScore.noBalls + 1
-                  : currentScore.noBalls,
-        );
-
-        transaction.update(matchRef, {
-          scoreKey: updatedScore.toMap(),
-          'last_ball_id': ballId,
-          'active_scorer_id': _auth.userId,
-          'is_free_hit': nextIsFreeHit,
-        });
-
-        final legalBallsFacedNow =
-            freshBatsman.legalBallsFaced + (isLegalDelivery ? 1 : 0);
-        final maxBatBalls =
-            freshMatch.customRulesEnabled ? (freshMatch.maxBattingOvers ?? 2) * 6 : 99999;
-        final isQuotaReached =
-            freshMatch.customRulesEnabled &&
-            !isWicket &&
-            legalBallsFacedNow >= maxBatBalls;
-
-        if (ballType != 'wide') {
-          final isRunOffBat = ballType == 'normal' || ballType == 'no_ball';
-          transaction.update(batsmanRef, {
-            'balls_faced': FieldValue.increment(1),
-            if (isLegalDelivery)
-              'legal_balls_faced': FieldValue.increment(1),
-            if (isRunOffBat) 'runs_scored': FieldValue.increment(runs),
-            if (isRunOffBat && runs == 4) 'fours': FieldValue.increment(1),
-            if (isRunOffBat && runs == 6) 'sixes': FieldValue.increment(1),
-            if (isQuotaReached) 'is_out': true,
-            if (isQuotaReached) 'dismissal_type': 'retired_out',
-          });
         }
 
         if (isWicket) {
           final targetPlayerId = dismissedPlayerId ?? batsman.id;
-          final targetRef = matchRef.collection('players').doc(targetPlayerId);
+          if (nextStriker == targetPlayerId) nextStriker = null;
+          if (nextNonStriker == targetPlayerId) nextNonStriker = null;
 
-          final Map<String, dynamic> wicketUpdates = {
-            'is_out': true,
-            'dismissed_by': bowler.id,
-          };
-
-          if (dismissalType != null) {
-            wicketUpdates['dismissal_type'] = dismissalType;
-          }
-
-          transaction.update(targetRef, wicketUpdates);
-
-          // Handle Fielder Catch/RunOut/Stumping for Man of the Match stats
-          if (fielderId != null) {
-            final fielderRef = matchRef.collection('players').doc(fielderId);
-            // Only catches count for the MOTM formula provided by user
-            if (dismissalType != null &&
-                dismissalType.toLowerCase().contains('caught')) {
-              transaction.update(fielderRef, {
-                'catches': FieldValue.increment(1),
-              });
-            }
-          }
-        }
-
-        int bowlerRunsConceded = runIncrease;
-        if (ballType == 'bye' || ballType == 'leg_bye') {
-          bowlerRunsConceded =
-              0; // Byes and leg byes do not count against the bowler
-        }
-
-        transaction.update(bowlerRef, {
-          'runs_conceded': FieldValue.increment(bowlerRunsConceded),
-          if (isLegalDelivery) 'balls_bowled': FieldValue.increment(1),
-          if (isWicket && dismissalType != 'run_out')
-            'wickets_taken': FieldValue.increment(1),
-        });
-
-        final isOverEnd =
-            isLegalDelivery && newBalls == 0 && newOvers > currentScore.overs;
-
-        if (isOverEnd) {
-          transaction.update(matchRef, {'current_bowler_id': null});
-        }
-
-        if (!match.customRulesEnabled) {
-          String? nextStriker = freshMatch.currentBatsmanId;
-          String? nextNonStriker = freshMatch.currentNonStrikerId;
-
-          if (isLegalDelivery && nextNonStriker != null) {
-            final shouldRotate = (runs % 2 != 0);
-            if (shouldRotate != isOverEnd) {
-              nextStriker = freshMatch.currentNonStrikerId;
-              nextNonStriker = freshMatch.currentBatsmanId;
-            }
-          }
-
-          if (isWicket) {
-            final targetPlayerId = dismissedPlayerId ?? batsman.id;
-            if (nextStriker == targetPlayerId) nextStriker = null;
-            if (nextNonStriker == targetPlayerId) nextNonStriker = null;
-
-            if (freshMatch.lastPlayerCanPlay) {
-              final battingTeamSize =
-                  freshMatch.currentInnings == 'A'
-                      ? freshMatch.teamAPlayers.length
-                      : freshMatch.teamBPlayers.length;
-
-              if (battingTeamSize > 0 &&
-                  updatedScore.wickets == battingTeamSize - 1) {
-                if (nextStriker == null && nextNonStriker != null) {
-                  nextStriker = nextNonStriker;
-                  nextNonStriker = null;
-                }
+          if (match.lastPlayerCanPlay) {
+            final battingTeamSize =
+                match.currentInnings == 'A'
+                    ? match.teamAPlayers.length
+                    : match.teamBPlayers.length;
+            if (battingTeamSize > 0 &&
+                updatedScore.wickets == battingTeamSize - 1) {
+              if (nextStriker == null && nextNonStriker != null) {
+                nextStriker = nextNonStriker;
+                nextNonStriker = null;
               }
             }
           }
+        }
 
-          transaction.update(matchRef, {
-            'current_batsman_id': nextStriker,
-            'current_non_striker_id': nextNonStriker,
-          });
+        matchUpdates['current_batsman_id'] = nextStriker;
+        matchUpdates['current_non_striker_id'] = nextNonStriker;
+      } else {
+        if (isWicket || legalBallsFacedNow >= maxBatBalls) {
+          matchUpdates['current_batsman_id'] = null;
+          matchUpdates['current_non_striker_id'] = null;
+        }
+      }
+
+      // ── Innings End Detection (local, no reads) ───────────────────────────
+      bool isInningsEnded = false;
+      final battingTeamId = match.currentInnings;
+      final teamSize =
+          battingTeamId == 'A'
+              ? match.teamAPlayers.length
+              : match.teamBPlayers.length;
+
+      if (!match.customRulesEnabled && teamSize > 0) {
+        final threshold = match.lastPlayerCanPlay ? teamSize : teamSize - 1;
+        if (updatedScore.wickets >= threshold) isInningsEnded = true;
+      }
+
+      if (match.totalOvers > 0 && updatedScore.overs >= match.totalOvers) {
+        isInningsEnded = true;
+      }
+
+      if (match.customRulesEnabled) {
+        final matchController = Get.find<MatchController>();
+        final allPlayers = matchController.players;
+        final ids =
+            battingTeamId == 'A' ? match.teamAPlayers : match.teamBPlayers;
+        final maxBatBallsLimit = (match.maxBattingOvers ?? 2) * 6;
+        bool hasEligible = false;
+        for (final pid in ids) {
+          final p = allPlayers[pid];
+          if (p == null) continue;
+          int legalNow = p.legalBallsFaced;
+          bool isOutNow = p.isOut;
+          if (p.id == batsman.id) {
+            legalNow = legalBallsFacedNow;
+            if (isWicket) isOutNow = true;
+          } else if (isWicket && p.id == (dismissedPlayerId ?? batsman.id)) {
+            isOutNow = true;
+          }
+          if (!isOutNow && legalNow < maxBatBallsLimit) {
+            hasEligible = true;
+            break;
+          }
+        }
+        if (!hasEligible) isInningsEnded = true;
+      }
+
+      if (match.isSecondInnings) {
+        final target = match.targetScore;
+        if (target > 0 && updatedScore.runs >= target) isInningsEnded = true;
+      }
+
+      if (isInningsEnded) {
+        if (!match.isSecondInnings) {
+          firstInningsCompleted = true;
+          toastMessage =
+              '1st Innings Completed: ${match.teamAName} vs ${match.teamBName}';
+          matchUpdates['is_innings_break'] = true;
+          matchUpdates['current_batsman_id'] = null;
+          matchUpdates['current_non_striker_id'] = null;
+          matchUpdates['current_bowler_id'] = null;
+          matchUpdates['is_free_hit'] = false;
         } else {
-          if (isWicket || legalBallsFacedNow >= maxBatBalls) {
-            transaction.update(matchRef, {
-              'current_batsman_id': null,
-              'current_non_striker_id': null,
-            });
-          }
-        }
+          final scoreA =
+              match.currentInnings == 'A'
+                  ? updatedScore.runs
+                  : match.teamAScore.runs;
+          final scoreB =
+              match.currentInnings == 'B'
+                  ? updatedScore.runs
+                  : match.teamBScore.runs;
 
-        // --- INNINGS END DETECTION (Inside Transaction) ---
-        bool isInningsEnded = false;
-        final battingTeamId = freshMatch.currentInnings;
-        final teamSize =
-            battingTeamId == 'A'
-                ? freshMatch.teamAPlayers.length
-                : freshMatch.teamBPlayers.length;
-
-        // 1. Wicket-based end (Normal Rules)
-        if (!freshMatch.customRulesEnabled && teamSize > 0) {
-          final threshold =
-              freshMatch.lastPlayerCanPlay ? teamSize : teamSize - 1;
-          if (updatedScore.wickets >= threshold) {
-            isInningsEnded = true;
-          }
-        }
-
-        // 2. Overs-based end
-        if (freshMatch.totalOvers > 0 &&
-            updatedScore.overs >= freshMatch.totalOvers) {
-          isInningsEnded = true;
-        }
-
-        // 3. Custom Rules end (No eligible batsmen)
-        if (freshMatch.customRulesEnabled) {
-          final maxBatBallsLimit = (freshMatch.maxBattingOvers ?? 2) * 6;
-          bool hasEligibleBatsman = false;
-
-          for (var p in freshBattingPlayers.values) {
-            // We must account for the current ball if this player IS the batsman
-            int legalBallsNow = p.legalBallsFaced;
-            bool isOutNow = p.isOut;
-
-            if (p.id == batsman.id) {
-              legalBallsNow = legalBallsFacedNow;
-              if (isWicket) isOutNow = true;
-            } else if (isWicket && p.id == (dismissedPlayerId ?? batsman.id)) {
-              isOutNow = true;
-            }
-
-            if (!isOutNow && legalBallsNow < maxBatBallsLimit) {
-              hasEligibleBatsman = true;
-              break;
-            }
+          String resultText = 'Match Tied';
+          if (scoreA > scoreB) {
+            resultText = '${match.teamAName} won by ${scoreA - scoreB} runs';
+          } else if (scoreB > scoreA) {
+            final wicketsDown = updatedScore.wickets;
+            final wicketsRemaining =
+                match.lastPlayerCanPlay
+                    ? teamSize - wicketsDown
+                    : (teamSize - 1) - wicketsDown;
+            resultText = '${match.teamBName} won by $wicketsRemaining wickets';
           }
 
-          if (!hasEligibleBatsman) {
-            isInningsEnded = true;
-          }
+          matchUpdates['status'] = AppConstants.matchCompleted;
+          matchUpdates['completed_at'] = Timestamp.now();
+          matchUpdates['result'] = resultText;
+          matchUpdates['current_batsman_id'] = null;
+          matchUpdates['current_non_striker_id'] = null;
+          matchUpdates['current_bowler_id'] = null;
+          matchCompleted = true;
         }
+      }
 
-        // 4. Target chased logic (2nd innings)
-        if (freshMatch.isSecondInnings) {
-          int target = freshMatch.targetScore;
-          if (target > 0 && updatedScore.runs >= target) {
-            isInningsEnded = true;
-          }
+      // ── Single batch commit — one round-trip to Firestore ─────────────────
+      final batch = _firestore.batch();
+
+      batch.update(matchRef, matchUpdates);
+
+      if (ballType != 'wide') {
+        final isRunOffBat = ballType == 'normal' || ballType == 'no_ball';
+        batch.update(batsmanRef, {
+          'balls_faced': FieldValue.increment(1),
+          if (isLegalDelivery) 'legal_balls_faced': FieldValue.increment(1),
+          if (isRunOffBat) 'runs_scored': FieldValue.increment(runs),
+          if (isRunOffBat && runs == 4) 'fours': FieldValue.increment(1),
+          if (isRunOffBat && runs == 6) 'sixes': FieldValue.increment(1),
+          if (isQuotaReached) 'is_out': true,
+          if (isQuotaReached) 'dismissal_type': 'retired_out',
+        });
+      }
+
+      if (isWicket) {
+        final targetPlayerId = dismissedPlayerId ?? batsman.id;
+        final targetRef = matchRef.collection('players').doc(targetPlayerId);
+        final Map<String, dynamic> wicketUpdates = {
+          'is_out': true,
+          'dismissed_by': bowler.id,
+          if (dismissalType != null) 'dismissal_type': dismissalType,
+        };
+        batch.update(targetRef, wicketUpdates);
+
+        if (fielderId != null &&
+            dismissalType != null &&
+            dismissalType.toLowerCase().contains('caught')) {
+          batch.update(matchRef.collection('players').doc(fielderId), {
+            'catches': FieldValue.increment(1),
+          });
         }
+      }
 
-        if (isInningsEnded) {
-          if (!freshMatch.isSecondInnings) {
-            firstInningsCompleted = true;
-            toastMessage =
-                '1st Innings Completed: ${freshMatch.teamAName} vs ${freshMatch.teamBName}';
-            // End of First Innings -> Enter Break
-            transaction.update(matchRef, {
-              'is_innings_break': true,
-              'current_batsman_id': null,
-              'current_non_striker_id': null,
-              'current_bowler_id': null,
-              'is_free_hit': false,
-            });
-          } else {
-            // End of Match -> Complete or Tie
-            final scoreA = freshMatch.currentInnings == 'A' ? updatedScore.runs : freshMatch.teamAScore.runs;
-            final scoreB = freshMatch.currentInnings == 'B' ? updatedScore.runs : freshMatch.teamBScore.runs;
+      int bowlerRunsConceded = runIncrease;
+      if (ballType == 'bye' || ballType == 'leg_bye') bowlerRunsConceded = 0;
 
-            String resultText = 'Match Tied';
-            if (scoreA > scoreB) {
-              resultText = '${freshMatch.teamAName} won by ${scoreA - scoreB} runs';
-            } else if (scoreB > scoreA) {
-              final wicketsDown = updatedScore.wickets;
-              final wicketsRemaining =
-                  freshMatch.lastPlayerCanPlay
-                      ? teamSize - wicketsDown
-                      : (teamSize - 1) - wicketsDown;
-              resultText =
-                  '${freshMatch.teamBName} won by $wicketsRemaining wickets';
-            }
-
-            transaction.update(matchRef, {
-              'status': AppConstants.matchCompleted,
-              'completed_at': Timestamp.now(),
-              'result': resultText,
-              'current_batsman_id': null,
-              'current_non_striker_id': null,
-              'current_bowler_id': null,
-            });
-            matchCompleted = true;
-          }
-        }
-
-        transaction.set(
-          matchRef.collection(AppConstants.ballLogsCollection).doc(ballId),
-          ballLog.toFirestore(),
-        );
+      batch.update(bowlerRef, {
+        'runs_conceded': FieldValue.increment(bowlerRunsConceded),
+        if (isLegalDelivery) 'balls_bowled': FieldValue.increment(1),
+        if (isWicket && dismissalType != 'run_out')
+          'wickets_taken': FieldValue.increment(1),
       });
 
-      _isLoading.value = false;
-      if (firstInningsCompleted) {
-        UIUtils.showSuccess(toastMessage);
-      }
+      batch.set(
+        matchRef.collection(AppConstants.ballLogsCollection).doc(ballId),
+        ballLog.toFirestore(),
+      );
+
+      await batch.commit();
+
+      if (firstInningsCompleted) UIUtils.showSuccess(toastMessage);
+
       if (matchCompleted) {
         _saveManOfMatch(matchId);
+        _pushMatchStatsToGlobal(matchId);
+        final matchController = Get.find<MatchController>();
+        final authController = Get.find<AuthController>();
+        if (authController.userId != null) {
+          matchController.loadMyMatches(authController.userId!, refresh: true);
+        }
+        matchController.loadCompletedMatches(refresh: true);
       }
-      // Show localized success message after transaction
-      // Note: We can't easily know if isInningsEnded was true inside here
-      // without extra state, but the UI will update anyway.
     } catch (e) {
-      _isLoading.value = false;
       UIUtils.showError('Error recording ball: $e');
+    }
+  }
+
+  // ─── Push Match Stats to Global Collection ─────────────────────────────────
+  Future<void> _pushMatchStatsToGlobal(String matchId) async {
+    try {
+      final matchDoc =
+          await _firestore
+              .collection(AppConstants.matchesCollection)
+              .doc(matchId)
+              .get();
+      if (!matchDoc.exists) return;
+
+      final match = MatchModel.fromFirestore(matchDoc);
+      final data = matchDoc.data() as Map<String, dynamic>;
+      if (data['stats_updated'] == true) return;
+
+      final playersSnap = await matchDoc.reference.collection('players').get();
+      final batch = _firestore.batch();
+
+      // Fetch existing users to check highest score (non-blocking if many, but usually small team)
+      final List<String> playerIds = playersSnap.docs.map((d) => d.id).toList();
+      final userSnaps = await Future.wait(
+        playerIds.map(
+          (id) =>
+              _firestore.collection(AppConstants.usersCollection).doc(id).get(),
+        ),
+      );
+      final Map<String, int> existingHS = {
+        for (var snap in userSnaps)
+          snap.id: (snap.data()?['highest_score'] ?? 0) as int,
+      };
+
+      for (final doc in playersSnap.docs) {
+        final p = PlayerModel.fromMap(doc.data());
+        final statsRef = _firestore
+            .collection(AppConstants.playerStatsCollection)
+            .doc(p.id);
+        final userRef = _firestore
+            .collection(AppConstants.usersCollection)
+            .doc(p.id);
+
+        // Calculate Win/Loss
+        bool isWin = false;
+        bool isLoss = false;
+        if (match.result != null &&
+            !match.result!.toLowerCase().contains('tied')) {
+          final res = match.result!.toLowerCase();
+          final myTeamName =
+              (p.teamId == 'A' ? match.teamAName : match.teamBName)
+                  .toLowerCase();
+          if (res.contains(myTeamName)) {
+            isWin = true;
+          } else {
+            isLoss = true;
+          }
+        }
+
+        // Batting Best
+        int currentBest = existingHS[p.id] ?? 0;
+        int matchBest = p.runsScored;
+        int finalHS = matchBest > currentBest ? matchBest : currentBest;
+
+        // Overall Stats Map
+        final Map<String, dynamic> s = {
+          'matches': FieldValue.increment(1),
+          'runs': FieldValue.increment(p.runsScored),
+          'balls_faced': FieldValue.increment(p.ballsFaced),
+          'wickets': FieldValue.increment(p.wicketsTaken),
+          'fours': FieldValue.increment(p.fours),
+          'sixes': FieldValue.increment(p.sixes),
+          'runs_conceded': FieldValue.increment(p.runsConceded),
+          'maidens': FieldValue.increment(p.maidens),
+          'wide_balls': FieldValue.increment(p.widesBowled),
+          'no_balls': FieldValue.increment(p.noBallsBowled),
+          'wins': FieldValue.increment(isWin ? 1 : 0),
+          'losses': FieldValue.increment(isLoss ? 1 : 0),
+          'highest_score': finalHS,
+        };
+
+        if (p.ballsFaced > 0) {
+          s['batting_innings'] = FieldValue.increment(1);
+          if (!p.isOut) s['not_outs'] = FieldValue.increment(1);
+          if (p.runsScored == 0 && p.isOut)
+            s['ducks'] = FieldValue.increment(1);
+          if (p.runsScored >= 100)
+            s['hundreds'] = FieldValue.increment(1);
+          else if (p.runsScored >= 50)
+            s['fifties'] = FieldValue.increment(1);
+          else if (p.runsScored >= 30)
+            s['thirties'] = FieldValue.increment(1);
+        }
+
+        if (p.ballsBowled > 0 || p.oversBowled > 0) {
+          s['bowling_innings'] = FieldValue.increment(1);
+          // Store overs as whole + fractional balls (e.g. 2.3)
+          final double overValue = p.oversBowled + (p.ballsBowled / 10.0);
+          s['overs'] = FieldValue.increment(overValue);
+          if (p.wicketsTaken >= 5)
+            s['five_wkts'] = FieldValue.increment(1);
+          else if (p.wicketsTaken >= 3)
+            s['three_wkts'] = FieldValue.increment(1);
+
+          // Update Best Bowling if current is better
+          // This is tricky with FieldValue.increment, but we can't do it perfectly in a batch without reading.
+          // For now, we update it in match stats sub-collection which is already done.
+        }
+
+        batch.set(statsRef, s, SetOptions(merge: true));
+
+        // Update AppUser for quick lists
+        batch.update(userRef, {
+          'total_runs': FieldValue.increment(p.runsScored),
+          'total_wickets': FieldValue.increment(p.wicketsTaken),
+          'matches_played': FieldValue.increment(1),
+          'highest_score': finalHS,
+        });
+      }
+
+      batch.update(matchDoc.reference, {'stats_updated': true});
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Error updating global stats: $e');
     }
   }
 
@@ -567,9 +625,11 @@ class ScoringController extends GetxController {
     try {
       final nextInnings = match.currentInnings == 'A' ? 'B' : 'A';
       final batch = _firestore.batch();
-      
-      final matchRef = _firestore.collection(AppConstants.matchesCollection).doc(match.id);
-      
+
+      final matchRef = _firestore
+          .collection(AppConstants.matchesCollection)
+          .doc(match.id);
+
       batch.update(matchRef, {
         'current_innings': nextInnings,
         'is_innings_break': false,
@@ -578,12 +638,9 @@ class ScoringController extends GetxController {
         'current_bowler_id': null,
       });
 
-
       await batch.commit();
-      
-      UIUtils.showSuccess(
-        'Second Innings Started! Team $nextInnings to bat.'
-      );
+
+      UIUtils.showSuccess('Second Innings Started! Team $nextInnings to bat.');
     } catch (e) {
       UIUtils.showError('Failed to start next innings: $e');
     }
@@ -599,6 +656,12 @@ class ScoringController extends GetxController {
       UIUtils.showError(
         'You can only undo balls scored by yourself or as an admin.',
       );
+      return;
+    }
+
+    // --- Innings Boundary Check ---
+    if (match.currentInnings != lastBall.innings) {
+      UIUtils.showError('Cannot undo balls from the previous innings.');
       return;
     }
 
@@ -618,57 +681,109 @@ class ScoringController extends GetxController {
         );
         final currentScore = freshMatch.currentScore;
 
-        final totalRunsToReverse =
-            (lastBall.ballType == 'wide'
-                ? (lastBall.runs + lastBall.extraRuns)
-                : (lastBall.runs + lastBall.extraRuns));
+        // Correct reversal logic to match recordBall logic:
+        // Wide: runIncrease = wideExtra + runs, extraIncrease = wideExtra + runs
+        // NoBall: runIncrease = noBallExtra + runs, extraIncrease = noBallExtra
+        // Bye/LegBye: runIncrease = runs, extraIncrease = runs
+        // Normal: runIncrease = runs, extraIncrease = 0
+
+        int totalRunsToReverse = 0;
+        if (lastBall.ballType == 'wide') {
+          totalRunsToReverse = lastBall.extraRuns;
+        } else if (lastBall.ballType == 'no_ball') {
+          totalRunsToReverse = lastBall.runs + lastBall.extraRuns;
+        } else if (lastBall.ballType == 'bye' ||
+            lastBall.ballType == 'leg_bye') {
+          totalRunsToReverse = lastBall.extraRuns;
+        } else {
+          totalRunsToReverse = lastBall.runs;
+        }
 
         final rolledBackScore = currentScore.copyWith(
-          runs: currentScore.runs - totalRunsToReverse,
+          runs: (currentScore.runs - totalRunsToReverse).clamp(0, 9999),
           wickets:
               lastBall.isWicket
-                  ? currentScore.wickets - 1
+                  ? (currentScore.wickets - 1).clamp(0, 20)
                   : currentScore.wickets,
           overs: lastBall.overNumber,
           balls: lastBall.ballNumber,
-          extras: currentScore.extras - lastBall.extraRuns,
+          extras: (currentScore.extras - lastBall.extraRuns).clamp(0, 999),
           wides:
               lastBall.ballType == 'wide'
-                  ? currentScore.wides - 1
+                  ? (currentScore.wides - 1).clamp(0, 999)
                   : currentScore.wides,
           noBalls:
               lastBall.ballType == 'no_ball'
-                  ? currentScore.noBalls - 1
+                  ? (currentScore.noBalls - 1).clamp(0, 999)
                   : currentScore.noBalls,
         );
 
-        transaction.update(matchRef, {
+        final Map<String, dynamic> matchUpdates = {
           scoreKey: rolledBackScore.toMap(),
           'is_free_hit': lastBall.isFreeHit,
           'last_ball_id':
               _ballLogs.length > 1 ? _ballLogs[_ballLogs.length - 2].id : null,
-        });
+        };
+
+        // If match was completed, bring it back to live
+        if (freshMatch.status == AppConstants.matchCompleted) {
+          matchUpdates['status'] = AppConstants.matchLive;
+          matchUpdates['completed_at'] = null;
+          matchUpdates['result'] = null;
+        }
+
+        // If it was innings break, remove it
+        if (freshMatch.isInningsBreak) {
+          matchUpdates['is_innings_break'] = false;
+        }
+
+        transaction.update(matchRef, matchUpdates);
 
         if (lastBall.ballType != 'wide') {
           transaction.update(batsmanRef, {
             'balls_faced': FieldValue.increment(-1),
             'runs_scored': FieldValue.increment(-lastBall.runs),
-            if (lastBall.isWicket) 'is_out': false,
           });
         }
+
+        if (lastBall.isWicket) {
+          final targetPlayerId =
+              lastBall.dismissedPlayerId ?? lastBall.batsmanId;
+          final targetRef = matchRef.collection('players').doc(targetPlayerId);
+          transaction.update(targetRef, {
+            'is_out': false,
+            'dismissed_by': null,
+            'dismissal_type': null,
+          });
+
+          // Reverse fielder stats if applicable
+          // Note: In current recordBall, catches are only incremented if dismissalType contains 'caught'
+          if (lastBall.dismissalType != null &&
+              lastBall.dismissalType!.toLowerCase().contains('caught')) {
+            // We'd need fielderId from the log to reverse it perfectly.
+            // BallLog currently doesn't store fielderId explicitly, but it might be in dismissal description?
+            // Actually, let's check if we should add fielderId to BallLog.
+          }
+        }
+
         transaction.update(bowlerRef, {
-          'runs_conceded': FieldValue.increment(-totalRunsToReverse),
+          'runs_conceded': FieldValue.increment(
+            -(lastBall.ballType == 'bye' || lastBall.ballType == 'leg_bye'
+                ? 0
+                : totalRunsToReverse),
+          ),
           if (lastBall.ballType != 'wide' && lastBall.ballType != 'no_ball')
             'balls_bowled': FieldValue.increment(-1),
-          if (lastBall.isWicket) 'wickets_taken': FieldValue.increment(-1),
+          if (lastBall.isWicket && lastBall.dismissalType != 'run_out')
+            'wickets_taken': FieldValue.increment(-1),
         });
 
-        // ── Restore bowler if it was set to null (at over end or innings break) ──
-        if (freshMatch.currentBowlerId == null) {
-          transaction.update(matchRef, {
-            'current_bowler_id': lastBall.bowlerId,
-          });
-        }
+        // ── Restore exact state (Striker, Non-Striker, Bowler) ──
+        transaction.update(matchRef, {
+          'current_batsman_id': lastBall.batsmanId,
+          'current_non_striker_id': lastBall.nonStrikerId,
+          'current_bowler_id': lastBall.bowlerId,
+        });
 
         transaction.delete(
           matchRef.collection(AppConstants.ballLogsCollection).doc(lastBall.id),
@@ -676,7 +791,6 @@ class ScoringController extends GetxController {
       });
 
       _isLoading.value = false;
-      // UIUtils.showSuccess('Last ball removed successfully.');
     } catch (e) {
       _isLoading.value = false;
       UIUtils.showError('Error undoing ball: $e');

@@ -70,10 +70,11 @@ class AuthController extends GetxController {
   /// Load user profile from Firestore
   Future<void> _loadUserProfile(String uid) async {
     try {
-      final doc = await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(uid)
-          .get();
+      final doc =
+          await _firestore
+              .collection(AppConstants.usersCollection)
+              .doc(uid)
+              .get();
       if (doc.exists) {
         _currentUser.value = AppUser.fromFirestore(doc);
       } else {
@@ -82,6 +83,24 @@ class AuthController extends GetxController {
       _error.value = null;
     } catch (e) {
       _error.value = 'Failed to load profile: ${e.toString()}';
+    }
+  }
+
+  /// Get user name by ID
+  Future<String> getUserName(String uid) async {
+    if (uid.isEmpty) return 'Unknown';
+    try {
+      final doc =
+          await _firestore
+              .collection(AppConstants.usersCollection)
+              .doc(uid)
+              .get();
+      if (doc.exists) {
+        return doc.data()?['name'] ?? 'Unknown';
+      }
+      return 'Unknown';
+    } catch (e) {
+      return 'Unknown';
     }
   }
 
@@ -97,23 +116,25 @@ class AuthController extends GetxController {
       _error.value = null;
 
       // ── 1. Check for admin pre-registration ───────────────
-      final preRegQuery = await _firestore
-          .collection(AppConstants.usersCollection)
-          .where('phone', isEqualTo: phone)
-          .where('is_pre_registered', isEqualTo: true)
-          .limit(1)
-          .get();
+      final preRegQuery =
+          await _firestore
+              .collection(AppConstants.usersCollection)
+              .where('phone', isEqualTo: phone)
+              .where('is_pre_registered', isEqualTo: true)
+              .limit(1)
+              .get();
 
       final isPreRegistered = preRegQuery.docs.isNotEmpty;
       final preRegDoc = isPreRegistered ? preRegQuery.docs.first : null;
 
       // ── 2. If NOT pre-registered, check phone isn't taken ─
       if (!isPreRegistered) {
-        final existingQuery = await _firestore
-            .collection(AppConstants.usersCollection)
-            .where('phone', isEqualTo: phone)
-            .limit(1)
-            .get();
+        final existingQuery =
+            await _firestore
+                .collection(AppConstants.usersCollection)
+                .where('phone', isEqualTo: phone)
+                .limit(1)
+                .get();
 
         if (existingQuery.docs.isNotEmpty) {
           throw 'This phone number is already registered. Please sign in.';
@@ -127,7 +148,8 @@ class AuthController extends GetxController {
         password: password,
       );
 
-      if (credential.user == null) throw 'Registration failed. Please try again.';
+      if (credential.user == null)
+        throw 'Registration failed. Please try again.';
       final uid = credential.user!.uid;
 
       // ── 4. Upload profile image if provided ───────────────
@@ -146,12 +168,12 @@ class AuthController extends GetxController {
         final preData = preRegDoc!.data();
         final migratedUser = AppUser(
           uid: uid,
-          name: preData['name'] ?? name,      // keep admin-entered name
+          name: preData['name'] ?? name, // keep admin-entered name
           phone: phone,
           role: preData['role'] ?? AppConstants.rolePlayer,
-          isApproved: true,                    // already approved by admin
-          isPreRegistered: false,              // now a real account
-          profileImageUrl: imageUrl,           // player's own photo
+          isApproved: true, // already approved by admin
+          isPreRegistered: false, // now a real account
+          profileImageUrl: imageUrl, // player's own photo
         );
 
         // Write new doc, then delete the old pre-reg doc
@@ -185,7 +207,9 @@ class AuthController extends GetxController {
             .set(newUser.toFirestore());
 
         _isLoading.value = false;
-        UIUtils.showSuccess('Registration successful! Please wait for admin approval.');
+        UIUtils.showSuccess(
+          'Registration successful! Please wait for admin approval.',
+        );
         _currentUser.value = null;
         await _auth.signOut();
       }
@@ -221,10 +245,11 @@ class AuthController extends GetxController {
         password: password,
       );
 
-      final doc = await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(credential.user?.uid)
-          .get();
+      final doc =
+          await _firestore
+              .collection(AppConstants.usersCollection)
+              .doc(credential.user?.uid)
+              .get();
 
       if (doc.exists) {
         final user = AppUser.fromFirestore(doc);
@@ -273,9 +298,9 @@ class AuthController extends GetxController {
           .collection(AppConstants.usersCollection)
           .doc(_currentUser.value!.uid)
           .update({
-        if (name != null) 'name': name,
-        if (role != null) 'role': role,
-      });
+            if (name != null) 'name': name,
+            if (role != null) 'role': role,
+          });
     } catch (e) {
       _error.value = e.toString();
     }

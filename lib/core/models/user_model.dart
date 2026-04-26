@@ -6,7 +6,7 @@ class AppUser {
   final String name;
   final String email; // kept for backward compat, prefer phone
   final String phone;
-  final String role; // 'super_admin', 'admin', 'player'
+  final String role; // 'admin', 'player'
   final bool isApproved;
   final bool isPreRegistered; // true = admin created, no Auth account yet
   final String? profileImageUrl;
@@ -32,8 +32,8 @@ class AppUser {
     this.highestScore = 0,
     DateTime? createdAt,
     DateTime? lastLogin,
-  })  : createdAt = createdAt ?? DateTime.now(),
-        lastLogin = lastLogin ?? DateTime.now();
+  }) : createdAt = createdAt ?? DateTime.now(),
+       lastLogin = lastLogin ?? DateTime.now();
 
   /// Create from Firestore document snapshot
   factory AppUser.fromFirestore(DocumentSnapshot doc) {
@@ -43,10 +43,12 @@ class AppUser {
       name: data['name'] ?? '',
       email: data['email'] ?? '',
       phone: data['phone'] ?? '',
-      role: data['role'] ?? 'player',
+      role:
+          data['role'] == 'super_admin' ? 'admin' : (data['role'] ?? 'player'),
       isApproved: data['is_approved'] ?? false,
       isPreRegistered: data['is_pre_registered'] ?? false,
-      profileImageUrl: data['profile_image'] ?? data['profile_image_url'], // Support both
+      profileImageUrl:
+          data['profile_image'] ?? data['profile_image_url'], // Support both
       totalRuns: data['total_runs'] ?? 0,
       totalWickets: data['total_wickets'] ?? 0,
       matchesPlayed: data['matches_played'] ?? 0,
@@ -106,7 +108,6 @@ class AppUser {
     );
   }
 
-  bool get isSuperAdmin => role == 'super_admin';
-  bool get isAdmin => role == 'admin' || role == 'super_admin';
+  bool get isAdmin => role == 'admin';
   bool get isPlayer => role == 'player';
 }

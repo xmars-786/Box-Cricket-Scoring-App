@@ -114,80 +114,151 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor:
+          isDark ? const Color(0xFF0D1B2A) : const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: Text(
           'Create Match',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+          ),
         ),
+        elevation: 0,
+        centerTitle: true,
       ),
-      body: Form(
-        key: _formKey,
-        child: Stepper(
-          currentStep: _currentStep,
-          onStepContinue: _onStepContinue,
-          onStepCancel: () {
-            if (_currentStep > 0) setState(() => _currentStep--);
-          },
-          controlsBuilder:
-              (context, details) => Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Row(
-                  children: [
-                    ElevatedButton(
-                      onPressed: details.onStepContinue,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryGreen,
-                        foregroundColor: Colors.white,
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: AppTheme.primaryGreen,
+                primary: AppTheme.primaryGreen,
+                brightness: isDark ? Brightness.dark : Brightness.light,
+              ),
+            ),
+            child: Stepper(
+              type: StepperType.horizontal,
+              elevation: 0,
+              currentStep: _currentStep,
+              onStepContinue: _onStepContinue,
+              onStepCancel: () {
+                if (_currentStep > 0) setState(() => _currentStep--);
+              },
+              controlsBuilder: (context, details) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 32),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: details.onStepContinue,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 4,
+                            shadowColor: AppTheme.primaryGreen.withOpacity(0.3),
+                          ),
+                          child: Text(
+                            _currentStep == 2 ? 'CREATE MATCH' : 'CONTINUE',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
                       ),
-                      child: Text(
-                        _currentStep == 2 ? 'Create Match' : 'Continue',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    if (_currentStep > 0) ...[
-                      const SizedBox(width: 12),
-                      TextButton(
-                        onPressed: details.onStepCancel,
-                        child: const Text('Back'),
-                      ),
+                      if (_currentStep > 0) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: details.onStepCancel,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              side: BorderSide(
+                                color: isDark ? Colors.white24 : Colors.black12,
+                              ),
+                            ),
+                            child: Text(
+                              'BACK',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white70 : Colors.black54,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
+                );
+              },
+              steps: [
+                Step(
+                  title: Text(
+                    'Details',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color:
+                          _currentStep >= 0
+                              ? (isDark ? Colors.white : Colors.black87)
+                              : Colors.grey,
+                    ),
+                  ),
+                  isActive: _currentStep >= 0,
+                  state:
+                      _currentStep > 0 ? StepState.complete : StepState.indexed,
+                  content: _buildMatchDetailsStep(isDark),
                 ),
-              ),
-          steps: [
-            Step(
-              title: Text(
-                'Match Details',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-              ),
-              subtitle: const Text('Title, teams, overs'),
-              isActive: _currentStep >= 0,
-              state: _currentStep > 0 ? StepState.complete : StepState.indexed,
-              content: _buildMatchDetailsStep(isDark),
+                Step(
+                  title: Text(
+                    'Squads',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color:
+                          _currentStep >= 1
+                              ? (isDark ? Colors.white : Colors.black87)
+                              : Colors.grey,
+                    ),
+                  ),
+                  isActive: _currentStep >= 1,
+                  state:
+                      _currentStep > 1 ? StepState.complete : StepState.indexed,
+                  content: _buildPlayersStep(isDark),
+                ),
+                Step(
+                  title: Text(
+                    'Settings',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color:
+                          _currentStep >= 2
+                              ? (isDark ? Colors.white : Colors.black87)
+                              : Colors.grey,
+                    ),
+                  ),
+                  isActive: _currentStep >= 2,
+                  state:
+                      _currentStep > 2 ? StepState.complete : StepState.indexed,
+                  content: _buildTossStep(isDark),
+                ),
+              ],
             ),
-            Step(
-              title: Text(
-                'Players & Roles',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                '${_teamAPlayers.length + _teamBPlayers.length} players',
-              ),
-              isActive: _currentStep >= 1,
-              state: _currentStep > 1 ? StepState.complete : StepState.indexed,
-              content: _buildPlayersStep(isDark),
-            ),
-            Step(
-              title: Text(
-                'Toss & Settings',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-              ),
-              subtitle: const Text('Toss details'),
-              isActive: _currentStep >= 2,
-              state: _currentStep > 2 ? StepState.complete : StepState.indexed,
-              content: _buildTossStep(isDark),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -548,106 +619,106 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.group,
-                    color: AppTheme.primaryGreen,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Select Team',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: availableTeams.length,
-                itemBuilder: (context, index) {
-                  final team = availableTeams[index];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 4,
-                    ),
-                    leading: CircleAvatar(
-                      backgroundColor: AppTheme.primaryGreen.withOpacity(0.1),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppTheme.primaryGreen.withOpacity(0.15),
                       child: const Icon(
-                        Icons.group,
+                        Icons.group_add,
                         color: AppTheme.primaryGreen,
-                        size: 20,
+                        size: 16,
                       ),
                     ),
-                    title: Text(
-                      team.name,
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      '${team.playerIds.length} players',
+                    const SizedBox(width: 8),
+                    Text(
+                      'Select Team',
                       style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: Colors.grey,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    onTap: () {
-                      setState(() {
-                        nameController.text = team.name;
-                        teamPlayers.clear();
-                        for (var uid in team.playerIds) {
-                          try {
-                            final u = _registeredUsers.firstWhere(
-                              (user) => user.uid == uid,
-                            );
-                            teamPlayers.add(
-                              PlayerModel(
-                                id: u.uid,
-                                name: u.name,
-                                role: 'player',
-                                teamId: teamId,
-                                profileImageUrl: u.profileImageUrl,
-                              ),
-                            );
-                          } catch (_) {}
-                        }
-                      });
-                      Navigator.pop(ctx);
-                      // Get.snackbar(
-                      //   'Team Loaded',
-                      //   '${team.name} loaded with ${teamPlayers.length} players',
-                      //   backgroundColor: AppTheme.primaryGreen,
-                      //   colorText: Colors.white,
-                      // );
-                    },
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 12),
+              const Divider(),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: availableTeams.length,
+                  itemBuilder: (context, index) {
+                    final team = availableTeams[index];
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 4,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: AppTheme.primaryGreen.withOpacity(0.1),
+                        child: const Icon(
+                          Icons.group,
+                          color: AppTheme.primaryGreen,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        team.name,
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${team.playerIds.length} players',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      onTap: () {
+                        setState(() {
+                          nameController.text = team.name;
+                          teamPlayers.clear();
+                          for (var uid in team.playerIds) {
+                            try {
+                              final u = _registeredUsers.firstWhere(
+                                (user) => user.uid == uid,
+                              );
+                              teamPlayers.add(
+                                PlayerModel(
+                                  id: u.uid,
+                                  name: u.name,
+                                  role: 'player',
+                                  teamId: teamId,
+                                  profileImageUrl: u.profileImageUrl,
+                                ),
+                              );
+                            } catch (_) {}
+                          }
+                        });
+                        Navigator.pop(ctx);
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         );
       },
     );
@@ -968,220 +1039,231 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               initialChildSize: 0.75,
               maxChildSize: 0.95,
               builder:
-                  (_, controller) => Column(
-                    children: [
-                      const SizedBox(height: 12),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[400],
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 14,
-                              backgroundColor: color.withOpacity(0.15),
-                              child: Icon(Icons.group, color: color, size: 16),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              teamName,
-                              style: GoogleFonts.inter(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '${teamPlayers.length} selected',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: color,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: TextField(
-                          controller: searchCtrl,
-                          decoration: InputDecoration(
-                            hintText: 'Search player...',
-                            prefixIcon: const Icon(Icons.search, size: 20),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color:
-                                    isDark
-                                        ? const Color(0xFF253750)
-                                        : const Color(0xFFE5E7EB),
-                              ),
-                            ),
+                  (_, controller) => SafeArea(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[400],
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          onChanged:
-                              (v) => setInner(() => query = v.toLowerCase()),
                         ),
-                      ),
-                      const Divider(height: 16),
-                      Expanded(
-                        child:
-                            _isLoadingUsers
-                                ? const Center(
-                                  child: CircularProgressIndicator(),
-                                )
-                                : ListView.builder(
-                                  controller: controller,
-                                  itemCount:
-                                      _registeredUsers
-                                          .where(
-                                            (u) => u.name
-                                                .toLowerCase()
-                                                .contains(query),
-                                          )
-                                          .length,
-                                  itemBuilder: (_, i) {
-                                    final filtered =
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: color.withOpacity(0.15),
+                                child: Icon(
+                                  Icons.group,
+                                  color: color,
+                                  size: 16,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                teamName,
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${teamPlayers.length} selected',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            controller: searchCtrl,
+                            decoration: InputDecoration(
+                              hintText: 'Search player...',
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color:
+                                      isDark
+                                          ? const Color(0xFF253750)
+                                          : const Color(0xFFE5E7EB),
+                                ),
+                              ),
+                            ),
+                            onChanged:
+                                (v) => setInner(() => query = v.toLowerCase()),
+                          ),
+                        ),
+                        const Divider(height: 16),
+                        Expanded(
+                          child:
+                              _isLoadingUsers
+                                  ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                  : ListView.builder(
+                                    controller: controller,
+                                    itemCount:
                                         _registeredUsers
                                             .where(
                                               (u) => u.name
                                                   .toLowerCase()
                                                   .contains(query),
                                             )
-                                            .toList();
-                                    final u = filtered[i];
-                                    final isInOther = otherIds.contains(u.uid);
-                                    final isSelected = teamPlayers.any(
-                                      (p) => p.id == u.uid,
-                                    );
+                                            .length,
+                                    itemBuilder: (_, i) {
+                                      final filtered =
+                                          _registeredUsers
+                                              .where(
+                                                (u) => u.name
+                                                    .toLowerCase()
+                                                    .contains(query),
+                                              )
+                                              .toList();
+                                      final u = filtered[i];
+                                      final isInOther = otherIds.contains(
+                                        u.uid,
+                                      );
+                                      final isSelected = teamPlayers.any(
+                                        (p) => p.id == u.uid,
+                                      );
 
-                                    return CheckboxListTile(
-                                      enabled: !isInOther,
-                                      secondary: Stack(
-                                        children: [
-                                          _buildAvatar(
-                                            u,
-                                            20,
-                                            isSelected: isSelected,
-                                            selectedColor: color,
-                                          ),
-                                          if (isInOther)
-                                            Positioned(
-                                              right: 0,
-                                              bottom: 0,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  2,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.red,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.block,
-                                                  size: 8,
-                                                  color: Colors.white,
+                                      return CheckboxListTile(
+                                        enabled: !isInOther,
+                                        secondary: Stack(
+                                          children: [
+                                            _buildAvatar(
+                                              u,
+                                              20,
+                                              isSelected: isSelected,
+                                              selectedColor: color,
+                                            ),
+                                            if (isInOther)
+                                              Positioned(
+                                                right: 0,
+                                                bottom: 0,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    2,
+                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Colors.red,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                  child: const Icon(
+                                                    Icons.block,
+                                                    size: 8,
+                                                    color: Colors.white,
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                        ],
-                                      ),
-                                      title: Text(
-                                        u.name,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 14,
-                                          fontWeight:
-                                              isSelected
-                                                  ? FontWeight.w600
-                                                  : FontWeight.normal,
-                                          color:
-                                              isInOther
-                                                  ? Colors.grey
-                                                  : (isSelected ? color : null),
+                                          ],
                                         ),
-                                      ),
-                                      subtitle:
-                                          isInOther
-                                              ? Text(
-                                                'In other team',
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 11,
-                                                  color: Colors.redAccent,
-                                                ),
-                                              )
-                                              : null,
-                                      value: isSelected,
-                                      activeColor: color,
-                                      checkColor: Colors.white,
-                                      onChanged:
-                                          isInOther
-                                              ? null
-                                              : (val) {
-                                                setInner(() {
-                                                  setState(() {
-                                                    if (val == true) {
-                                                      teamPlayers.add(
-                                                        PlayerModel(
-                                                          id: u.uid,
-                                                          name: u.name,
-                                                          role: 'player',
-                                                          teamId: '',
-                                                          profileImageUrl:
-                                                              u.profileImageUrl,
-                                                        ),
-                                                      );
-                                                    } else {
-                                                      teamPlayers.removeWhere(
-                                                        (p) => p.id == u.uid,
-                                                      );
-                                                      // Clear roles if removed
-                                                      _clearRolesForPlayer(
-                                                        u.uid,
-                                                        teamPlayers,
-                                                      );
-                                                    }
+                                        title: Text(
+                                          u.name,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 14,
+                                            fontWeight:
+                                                isSelected
+                                                    ? FontWeight.w600
+                                                    : FontWeight.normal,
+                                            color:
+                                                isInOther
+                                                    ? Colors.grey
+                                                    : (isSelected
+                                                        ? color
+                                                        : null),
+                                          ),
+                                        ),
+                                        subtitle:
+                                            isInOther
+                                                ? Text(
+                                                  'In other team',
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 11,
+                                                    color: Colors.redAccent,
+                                                  ),
+                                                )
+                                                : null,
+                                        value: isSelected,
+                                        activeColor: color,
+                                        checkColor: Colors.white,
+                                        onChanged:
+                                            isInOther
+                                                ? null
+                                                : (val) {
+                                                  setInner(() {
+                                                    setState(() {
+                                                      if (val == true) {
+                                                        teamPlayers.add(
+                                                          PlayerModel(
+                                                            id: u.uid,
+                                                            name: u.name,
+                                                            role: 'player',
+                                                            teamId: '',
+                                                            profileImageUrl:
+                                                                u.profileImageUrl,
+                                                          ),
+                                                        );
+                                                      } else {
+                                                        teamPlayers.removeWhere(
+                                                          (p) => p.id == u.uid,
+                                                        );
+                                                        // Clear roles if removed
+                                                        _clearRolesForPlayer(
+                                                          u.uid,
+                                                          teamPlayers,
+                                                        );
+                                                      }
+                                                    });
                                                   });
-                                                });
-                                                onChanged();
-                                              },
-                                    );
-                                  },
+                                                  onChanged();
+                                                },
+                                      );
+                                    },
+                                  ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: color,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: color,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
                               ),
-                            ),
-                            child: Text(
-                              'Done (${teamPlayers.length} selected)',
+                              child: Text(
+                                'Done (${teamPlayers.length} selected)',
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
             );
           },
@@ -1192,8 +1274,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
 
   void _clearRolesForPlayer(String uid, List<PlayerModel> teamPlayers) {
     // Clear captain/vc if player removed
-    if (_teamACaptainId == uid) _teamACaptainId = null;
-    if (_teamAViceCaptainId == uid) _teamAViceCaptainId = null;
     if (_teamBCaptainId == uid) _teamBCaptainId = null;
     if (_teamBViceCaptainId == uid) _teamBViceCaptainId = null;
     _selectedScorerIds.remove(uid);
@@ -1222,161 +1302,167 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               initialChildSize: 0.7,
               maxChildSize: 0.9,
               builder:
-                  (_, controller) => Column(
-                    children: [
-                      const SizedBox(height: 12),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[400],
-                          borderRadius: BorderRadius.circular(2),
+                  (_, controller) => SafeArea(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[400],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.scoreboard_outlined,
-                              color: AppTheme.primaryGreen,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Select Scorers',
-                              style: GoogleFonts.inter(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '${_selectedScorerIds.length} selected',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.scoreboard_outlined,
                                 color: AppTheme.primaryGreen,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 8),
+                              Text(
+                                'Select Scorers',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_selectedScorerIds.length} selected',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: AppTheme.primaryGreen,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: TextField(
-                          controller: searchCtrl,
-                          decoration: InputDecoration(
-                            hintText: 'Search scorer...',
-                            prefixIcon: const Icon(Icons.search, size: 20),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color:
-                                    isDark
-                                        ? const Color(0xFF253750)
-                                        : const Color(0xFFE5E7EB),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            controller: searchCtrl,
+                            decoration: InputDecoration(
+                              hintText: 'Search scorer...',
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color:
+                                      isDark
+                                          ? const Color(0xFF253750)
+                                          : const Color(0xFFE5E7EB),
+                                ),
                               ),
                             ),
+                            onChanged:
+                                (v) => setInner(() => query = v.toLowerCase()),
                           ),
-                          onChanged:
-                              (v) => setInner(() => query = v.toLowerCase()),
                         ),
-                      ),
-                      const Divider(height: 16),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: controller,
-                          itemCount:
-                              players
-                                  .where(
-                                    (p) => p.name.toLowerCase().contains(query),
-                                  )
-                                  .length,
-                          itemBuilder: (_, i) {
-                            final filtered =
+                        const Divider(height: 16),
+                        Expanded(
+                          child: ListView.builder(
+                            controller: controller,
+                            itemCount:
                                 players
                                     .where(
                                       (p) =>
                                           p.name.toLowerCase().contains(query),
                                     )
-                                    .toList();
-                            final p = filtered[i];
-                            final user = _userForPlayer(p);
-                            final isSelected = _selectedScorerIds.contains(
-                              p.id,
-                            );
-                            final isTeamA = _teamAPlayers.contains(p);
-                            return CheckboxListTile(
-                              secondary: _buildAvatar(
-                                user,
-                                20,
-                                isSelected: isSelected,
-                              ),
-                              title: Text(
-                                p.name,
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight:
-                                      isSelected
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
-                                  color:
-                                      isSelected ? AppTheme.primaryGreen : null,
+                                    .length,
+                            itemBuilder: (_, i) {
+                              final filtered =
+                                  players
+                                      .where(
+                                        (p) => p.name.toLowerCase().contains(
+                                          query,
+                                        ),
+                                      )
+                                      .toList();
+                              final p = filtered[i];
+                              final user = _userForPlayer(p);
+                              final isSelected = _selectedScorerIds.contains(
+                                p.id,
+                              );
+                              final isTeamA = _teamAPlayers.contains(p);
+                              return CheckboxListTile(
+                                secondary: _buildAvatar(
+                                  user,
+                                  20,
+                                  isSelected: isSelected,
                                 ),
-                              ),
-                              subtitle: Text(
-                                isTeamA
-                                    ? _teamANameController.text
-                                    : _teamBNameController.text,
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: Colors.grey,
+                                title: Text(
+                                  p.name,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight:
+                                        isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                    color:
+                                        isSelected
+                                            ? AppTheme.primaryGreen
+                                            : null,
+                                  ),
                                 ),
-                              ),
-                              value: isSelected,
-                              activeColor: AppTheme.primaryGreen,
-                              checkColor: Colors.white,
-                              onChanged: (val) {
-                                setInner(() {
-                                  setState(() {
-                                    if (val == true) {
-                                      _selectedScorerIds.add(p.id);
-                                    } else {
-                                      _selectedScorerIds.remove(p.id);
-                                    }
+                                subtitle: Text(
+                                  isTeamA
+                                      ? _teamANameController.text
+                                      : _teamBNameController.text,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                value: isSelected,
+                                activeColor: AppTheme.primaryGreen,
+                                checkColor: Colors.white,
+                                onChanged: (val) {
+                                  setInner(() {
+                                    setState(() {
+                                      if (val == true) {
+                                        _selectedScorerIds.add(p.id);
+                                      } else {
+                                        _selectedScorerIds.remove(p.id);
+                                      }
+                                    });
                                   });
-                                });
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryGreen,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text('Done'),
+                                },
+                              );
+                            },
                           ),
                         ),
-                      ),
-                    ],
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primaryGreen,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text('Done'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
             );
           },
@@ -1385,7 +1471,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     );
   }
 
-  // ─── Bottom Sheet: Role Picker ─────────────────────
   void _showRolePicker({
     required String label,
     required IconData icon,
@@ -1406,106 +1491,110 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  Icon(icon, color: color, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Select $label',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  ListTile(
-                    leading: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: Colors.grey[300],
-                      child: const Icon(
-                        Icons.person_off,
-                        size: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    title: Text(
-                      'None (Optional)',
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Icon(icon, color: color, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Select $label',
                       style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: Colors.grey[600],
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    trailing:
-                        selectedId == null
-                            ? Icon(
-                              Icons.check_circle,
-                              color: AppTheme.primaryGreen,
-                            )
-                            : null,
-                    onTap: () {
-                      onChanged(null);
-                      Navigator.pop(context);
-                      setState(() {});
-                    },
-                  ),
-                  ...players.map((p) {
-                    final user = _userForPlayer(p);
-                    final isSelected = selectedId == p.id;
-                    return ListTile(
-                      leading: _buildAvatar(
-                        user,
-                        20,
-                        isSelected: isSelected,
-                        selectedColor: color,
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    ListTile(
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.grey[300],
+                        child: const Icon(
+                          Icons.person_off,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                       ),
                       title: Text(
-                        p.name,
+                        'None (Optional)',
                         style: GoogleFonts.inter(
                           fontSize: 14,
-                          fontWeight:
-                              isSelected ? FontWeight.w600 : FontWeight.normal,
-                          color: isSelected ? color : null,
+                          color: Colors.grey[600],
                         ),
                       ),
                       trailing:
-                          isSelected
-                              ? Icon(Icons.check_circle, color: color)
+                          selectedId == null
+                              ? Icon(
+                                Icons.check_circle,
+                                color: AppTheme.primaryGreen,
+                              )
                               : null,
                       onTap: () {
-                        onChanged(p.id);
+                        onChanged(null);
                         Navigator.pop(context);
                         setState(() {});
                       },
-                    );
-                  }),
-                ],
+                    ),
+                    ...players.map((p) {
+                      final user = _userForPlayer(p);
+                      final isSelected = selectedId == p.id;
+                      return ListTile(
+                        leading: _buildAvatar(
+                          user,
+                          20,
+                          isSelected: isSelected,
+                          selectedColor: color,
+                        ),
+                        title: Text(
+                          p.name,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight:
+                                isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                            color: isSelected ? color : null,
+                          ),
+                        ),
+                        trailing:
+                            isSelected
+                                ? Icon(Icons.check_circle, color: color)
+                                : null,
+                        onTap: () {
+                          onChanged(p.id);
+                          Navigator.pop(context);
+                          setState(() {});
+                        },
+                      );
+                    }),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 20),
+            ],
+          ),
         );
       },
     );

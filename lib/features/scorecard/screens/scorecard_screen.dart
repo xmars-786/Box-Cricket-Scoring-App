@@ -20,26 +20,52 @@ class ScorecardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final teamABatsmen = players.values
-        .where((p) => p.teamId == 'A' && p.ballsFaced > 0)
-        .toList();
-    final teamABowlers = players.values
-        .where((p) => p.teamId == 'A' && p.totalBowlingBalls > 0)
-        .toList();
-    final teamBBatsmen = players.values
-        .where((p) => p.teamId == 'B' && p.ballsFaced > 0)
-        .toList();
-    final teamBBowlers = players.values
-        .where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0)
-        .toList();
+    // Get all players for Team A and Team B from the match player lists
+    final teamABatsmen =
+        match.teamAPlayers
+            .map((id) => players[id])
+            .whereType<PlayerModel>()
+            .toList();
 
-    // Actually, for simplicity, I'll just show the scores in their respective innings sections.
+    final teamBBatsmen =
+        match.teamBPlayers
+            .map((id) => players[id])
+            .whereType<PlayerModel>()
+            .toList();
+
+    // Sort to show those who have batted first, then those yet to bat
+    // Batted = faced balls or is out
+    teamABatsmen.sort((a, b) {
+      final aBatted = a.ballsFaced > 0 || a.isOut;
+      final bBatted = b.ballsFaced > 0 || b.isOut;
+      if (aBatted && !bBatted) return -1;
+      if (!aBatted && bBatted) return 1;
+      return 0;
+    });
+
+    teamBBatsmen.sort((a, b) {
+      final aBatted = a.ballsFaced > 0 || a.isOut;
+      final bBatted = b.ballsFaced > 0 || b.isOut;
+      if (aBatted && !bBatted) return -1;
+      if (!aBatted && bBatted) return 1;
+      return 0;
+    });
+
+    final teamABowlers =
+        players.values
+            .where((p) => p.teamId == 'A' && p.totalBowlingBalls > 0)
+            .toList();
+
+    final teamBBowlers =
+        players.values
+            .where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0)
+            .toList();
 
     final motmPlayerId = match.manOfMatch;
     final motmPlayer = motmPlayerId != null ? players[motmPlayerId] : null;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       children: [
         // ── Man of the Match card (only when completed) ──────────
         if (match.isCompleted && motmPlayer != null) ...[
@@ -116,11 +142,7 @@ class ScorecardScreen extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         // Team A Innings
-        _buildInningsHeader(
-          match.teamAName,
-          match.teamAScore,
-          isDark,
-        ),
+        _buildInningsHeader(match.teamAName, match.teamAScore, isDark),
         const SizedBox(height: 8),
         _buildBattingTable(teamABatsmen, isDark),
         const SizedBox(height: 8),
@@ -131,11 +153,7 @@ class ScorecardScreen extends StatelessWidget {
         const SizedBox(height: 32),
 
         // Team B Innings
-        _buildInningsHeader(
-          match.teamBName,
-          match.teamBScore,
-          isDark,
-        ),
+        _buildInningsHeader(match.teamBName, match.teamBScore, isDark),
         const SizedBox(height: 8),
         _buildBattingTable(teamBBatsmen, isDark),
         const SizedBox(height: 8),
@@ -145,7 +163,6 @@ class ScorecardScreen extends StatelessWidget {
 
         const SizedBox(height: 24),
 
-
         // Result
         if (match.result != null) _buildResultCard(isDark),
       ],
@@ -153,13 +170,17 @@ class ScorecardScreen extends StatelessWidget {
   }
 
   String _getDismissalText(PlayerModel player) {
-    if (!player.isOut) return 'not out';
-    if (player.dismissalType == null || player.dismissalType!.isEmpty) return 'out';
-    
+    if (!player.isOut) {
+      return player.ballsFaced > 0 ? 'not out' : '';
+    }
+    if (player.dismissalType == null || player.dismissalType!.isEmpty)
+      return 'out';
+
     final type = player.dismissalType!;
-    final bowlerName = player.dismissedBy != null && player.dismissedBy!.isNotEmpty 
-        ? (players[player.dismissedBy!]?.name ?? 'Unknown Bowler') 
-        : '';
+    final bowlerName =
+        player.dismissedBy != null && player.dismissedBy!.isNotEmpty
+            ? (players[player.dismissedBy!]?.name ?? 'Unknown Bowler')
+            : '';
 
     final typeLower = type.toLowerCase();
 
@@ -167,7 +188,9 @@ class ScorecardScreen extends StatelessWidget {
       final fielderMatches = RegExp(r'\((.*?)\)').firstMatch(type);
       final fielderName = fielderMatches?.group(1);
       if (fielderName != null) {
-        return bowlerName.isNotEmpty ? 'c $fielderName b $bowlerName' : 'c $fielderName';
+        return bowlerName.isNotEmpty
+            ? 'c $fielderName b $bowlerName'
+            : 'c $fielderName';
       }
       return bowlerName.isNotEmpty ? 'c ? b $bowlerName' : 'caught';
     } else if (typeLower == 'bowled') {
@@ -181,54 +204,99 @@ class ScorecardScreen extends StatelessWidget {
     } else if (typeLower == 'hit wicket' || typeLower == 'hit_wicket') {
       return bowlerName.isNotEmpty ? 'hit wicket b $bowlerName' : 'hit wicket';
     } else {
-      return type.replaceAll('_', ' ') + (bowlerName.isNotEmpty ? ' b $bowlerName' : '');
+      return type.replaceAll('_', ' ') +
+          (bowlerName.isNotEmpty ? ' b $bowlerName' : '');
     }
   }
 
-  Widget _buildInningsHeader(
-      String teamName, MatchScore score, bool isDark) {
+  Widget _buildInningsHeader(String teamName, MatchScore score, bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+        gradient: LinearGradient(
+          colors:
+              isDark
+                  ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+                  : [const Color(0xFF667EEA), const Color(0xFF764BA2)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Text(
-            teamName,
-            style: GoogleFonts.outfit(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                teamName.toUpperCase(),
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white.withOpacity(0.7),
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Innings',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withOpacity(0.9),
+                ),
+              ),
+            ],
           ),
           const Spacer(),
-          Text(
-            '${score.runs}/${score.wickets}',
-            style: GoogleFonts.outfit(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '(${score.oversDisplay} ov)',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              color: Colors.white70,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    '${score.runs}',
+                    style: GoogleFonts.outfit(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    ' / ${score.wickets}',
+                    style: GoogleFonts.outfit(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.8),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                '(${score.oversDisplay} ov)',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.white.withOpacity(0.7),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBattingTable(
-      List<PlayerModel> batsmen, bool isDark) {
+  Widget _buildBattingTable(List<PlayerModel> batsmen, bool isDark) {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B263B) : Colors.white,
@@ -243,18 +311,16 @@ class ScorecardScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF253750)
-                  : const Color(0xFFF0F2F5),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
+              color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
             ),
             child: Row(
               children: [
                 Expanded(
                   flex: 4,
-                  child: Text('BATTING',
-                      style: _headerStyle()),
+                  child: Text('BATTING', style: _headerStyle()),
                 ),
                 _headerCell('R', 30),
                 _headerCell('B', 30),
@@ -286,9 +352,7 @@ class ScorecardScreen extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: isDark
-                ? const Color(0xFF253750)
-                : const Color(0xFFF0F2F5),
+            color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
           ),
         ),
       ),
@@ -312,33 +376,53 @@ class ScorecardScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (player.id == match.teamACaptainId || player.id == match.teamBCaptainId) ...[
+                    if (player.id == match.teamACaptainId ||
+                        player.id == match.teamBCaptainId) ...[
                       const SizedBox(width: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFFB800).withOpacity(0.15),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFFFFB800).withOpacity(0.5)),
+                          border: Border.all(
+                            color: const Color(0xFFFFB800).withOpacity(0.5),
+                          ),
                         ),
                         child: Text(
                           'C',
-                          style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFFD49A00)),
+                          style: GoogleFonts.inter(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFFD49A00),
+                          ),
                         ),
                       ),
                     ],
-                    if (player.id == match.teamAViceCaptainId || player.id == match.teamBViceCaptainId) ...[
+                    if (player.id == match.teamAViceCaptainId ||
+                        player.id == match.teamBViceCaptainId) ...[
                       const SizedBox(width: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF64B5F6).withOpacity(0.15),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFF64B5F6).withOpacity(0.5)),
+                          border: Border.all(
+                            color: const Color(0xFF64B5F6).withOpacity(0.5),
+                          ),
                         ),
                         child: Text(
                           'VC',
-                          style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFF1976D2)),
+                          style: GoogleFonts.inter(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF1976D2),
+                          ),
                         ),
                       ),
                     ],
@@ -349,7 +433,10 @@ class ScorecardScreen extends StatelessWidget {
                   _getDismissalText(player),
                   style: GoogleFonts.inter(
                     fontSize: 11,
-                    color: player.isOut ? AppTheme.wicketRed : AppTheme.primaryGreen,
+                    color:
+                        player.isOut
+                            ? AppTheme.wicketRed
+                            : AppTheme.primaryGreen,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -370,9 +457,7 @@ class ScorecardScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF1B263B)
-            : Colors.white,
+        color: isDark ? const Color(0xFF1B263B) : Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
@@ -382,10 +467,7 @@ class ScorecardScreen extends StatelessWidget {
         children: [
           Text(
             'Extras: ',
-            style: GoogleFonts.inter(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
+            style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
           ),
           Text(
             '${score.extras}',
@@ -397,18 +479,14 @@ class ScorecardScreen extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             '(wd ${score.wides}, nb ${score.noBalls}, b ${score.byes}, lb ${score.legByes})',
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              color: Colors.grey,
-            ),
+            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBowlingTable(
-      List<PlayerModel> bowlers, bool isDark) {
+  Widget _buildBowlingTable(List<PlayerModel> bowlers, bool isDark) {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B263B) : Colors.white,
@@ -422,11 +500,10 @@ class ScorecardScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF253750)
-                  : const Color(0xFFF0F2F5),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
+              color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
             ),
             child: Row(
               children: [
@@ -463,9 +540,7 @@ class ScorecardScreen extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: isDark
-                ? const Color(0xFF253750)
-                : const Color(0xFFF0F2F5),
+            color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
           ),
         ),
       ),
@@ -486,33 +561,53 @@ class ScorecardScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (player.id == match.teamACaptainId || player.id == match.teamBCaptainId) ...[
+                if (player.id == match.teamACaptainId ||
+                    player.id == match.teamBCaptainId) ...[
                   const SizedBox(width: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFB800).withOpacity(0.15),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFFFFB800).withOpacity(0.5)),
+                      border: Border.all(
+                        color: const Color(0xFFFFB800).withOpacity(0.5),
+                      ),
                     ),
                     child: Text(
                       'C',
-                      style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFFD49A00)),
+                      style: GoogleFonts.inter(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFFD49A00),
+                      ),
                     ),
                   ),
                 ],
-                if (player.id == match.teamAViceCaptainId || player.id == match.teamBViceCaptainId) ...[
+                if (player.id == match.teamAViceCaptainId ||
+                    player.id == match.teamBViceCaptainId) ...[
                   const SizedBox(width: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF64B5F6).withOpacity(0.15),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF64B5F6).withOpacity(0.5)),
+                      border: Border.all(
+                        color: const Color(0xFF64B5F6).withOpacity(0.5),
+                      ),
                     ),
                     child: Text(
                       'VC',
-                      style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFF1976D2)),
+                      style: GoogleFonts.inter(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1976D2),
+                      ),
                     ),
                   ),
                 ],
@@ -559,25 +654,25 @@ class ScorecardScreen extends StatelessWidget {
 
   // ─── Table Helpers ────────────────────────────────
   TextStyle _headerStyle() => GoogleFonts.inter(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.5,
-        color: Colors.grey,
-      );
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.5,
+    color: Colors.grey,
+  );
 
   Widget _headerCell(String text, double width) {
     return SizedBox(
       width: width,
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: _headerStyle(),
-      ),
+      child: Text(text, textAlign: TextAlign.center, style: _headerStyle()),
     );
   }
 
-  Widget _dataCell(String text, double width,
-      {bool bold = false, Color? color}) {
+  Widget _dataCell(
+    String text,
+    double width, {
+    bool bold = false,
+    Color? color,
+  }) {
     return SizedBox(
       width: width,
       child: Text(
@@ -591,7 +686,6 @@ class ScorecardScreen extends StatelessWidget {
       ),
     );
   }
-
 
   Widget _cell(String text, double width) {
     return SizedBox(

@@ -27,7 +27,6 @@ class AppConstants {
   static const String rulesDoc = 'rules';
 
   // ─── User Roles ─────────────────────────────────────────
-  static const String roleSuperAdmin = 'super_admin';
   static const String roleAdmin = 'admin';
   static const String rolePlayer = 'player';
 
@@ -51,4 +50,9 @@ class AppConstants {
   static const String dismissalStumped = 'stumped';
   static const String dismissalLBW = 'lbw';
   static const String dismissalHitWicket = 'hit_wicket';
+
+  // ─── App Metadata ───────────────────────────────────────
+  static const String appName = 'X Cricket';
+  static const String developedBy = 'DEVELOPED BY XMARS';
+  static const String appVersion = 'v1.0.0';
 }

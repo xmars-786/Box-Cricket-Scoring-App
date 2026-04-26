@@ -8,6 +8,7 @@ class BallLog {
   final int overNumber;
   final int ballNumber;
   final String batsmanId;
+  final String? nonStrikerId;
   final String bowlerId;
   final int runs;
   final String ballType; // 'normal', 'wide', 'no_ball', 'wicket'
@@ -30,6 +31,7 @@ class BallLog {
     required this.overNumber,
     required this.ballNumber,
     required this.batsmanId,
+    this.nonStrikerId,
     required this.bowlerId,
     required this.runs,
     this.ballType = 'normal',
@@ -55,6 +57,7 @@ class BallLog {
       overNumber: data['over_number'] ?? 0,
       ballNumber: data['ball_number'] ?? 0,
       batsmanId: data['batsman_id'] ?? '',
+      nonStrikerId: data['non_striker_id'],
       bowlerId: data['bowler_id'] ?? '',
       runs: data['runs'] ?? 0,
       ballType: data['ball_type'] ?? 'normal',
@@ -79,6 +82,7 @@ class BallLog {
       'over_number': overNumber,
       'ball_number': ballNumber,
       'batsman_id': batsmanId,
+      'non_striker_id': nonStrikerId,
       'bowler_id': bowlerId,
       'runs': runs,
       'ball_type': ballType,
@@ -126,4 +130,9 @@ class BallLog {
 
   /// Total runs from this ball (including extras)
   int get totalRuns => runs + extraRuns;
+
+  bool get isWide => ballType == 'wide';
+  bool get isNoBall => ballType == 'no_ball';
+  bool get isNormal => ballType == 'normal';
+  bool get isExtra => ballType != 'normal' && ballType != 'wicket';
 }

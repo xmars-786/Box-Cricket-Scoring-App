@@ -14,7 +14,7 @@ class MatchDetailController extends GetxController {
 
   void listenToLatestBall(String matchId) {
     _ballLogSub?.cancel();
-    
+
     _ballLogSub = _firestore
         .collection(AppConstants.matchesCollection)
         .doc(matchId)
@@ -23,17 +23,17 @@ class MatchDetailController extends GetxController {
         .limit(1)
         .snapshots()
         .listen((snapshot) {
-      if (snapshot.docs.isNotEmpty) {
-        final doc = snapshot.docs.first;
-        final ball = BallLog.fromFirestore(doc);
+          if (snapshot.docs.isNotEmpty) {
+            final doc = snapshot.docs.first;
+            final ball = BallLog.fromFirestore(doc);
 
-        if (_lastBallId != null && ball.id != _lastBallId) {
-          // It's a new ball
-          _triggerAnimationIfNeeded(ball);
-        }
-        _lastBallId = ball.id;
-      }
-    });
+            if (_lastBallId != null && ball.id != _lastBallId) {
+              // It's a new ball
+              _triggerAnimationIfNeeded(ball);
+            }
+            _lastBallId = ball.id;
+          }
+        });
   }
 
   void _triggerAnimationIfNeeded(BallLog ball) {
@@ -41,18 +41,29 @@ class MatchDetailController extends GetxController {
 
     if (ball.isWicket) {
       animationType = 'wicket';
+      HapticFeedback.heavyImpact();
     } else if (ball.runs == 6) {
       animationType = 'six';
+      HapticFeedback.mediumImpact();
     } else if (ball.runs == 4) {
       animationType = 'four';
+      HapticFeedback.mediumImpact();
+    } else if (ball.isWide) {
+      animationType = 'wide';
+      HapticFeedback.lightImpact();
+    } else if (ball.isNoBall) {
+      animationType = 'no_ball';
+      HapticFeedback.lightImpact();
+    } else if (ball.runs == 0 && !ball.isExtra) {
+      // Funny animation for dot ball?
+      // animationType = 'dot';
     }
 
     if (animationType != null) {
-      HapticFeedback.heavyImpact();
       currentAnimation.value = animationType;
 
-      // Auto hide after 2.5 seconds
-      Timer(const Duration(milliseconds: 2500), () {
+      // Auto hide after 3 seconds for more "funny" impact
+      Timer(const Duration(milliseconds: 3000), () {
         if (currentAnimation.value == animationType) {
           currentAnimation.value = null;
         }

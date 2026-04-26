@@ -17,6 +17,8 @@ class AppTheme {
   static const Color sixGold = Color(0xFFFFAB00);
   static const Color wideColor = Color(0xFF00BFA5);
   static const Color noBallColor = Color(0xFFFF9100);
+  static const Color byeColor = Color(0xFF448AFF);
+  static const Color legByeColor = Color(0xFF7C4DFF);
 
   // ─── Gradient Palettes ────────────────────────────────────
   static const LinearGradient primaryGradient = LinearGradient(

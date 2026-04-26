@@ -90,129 +90,157 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
           style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
         ),
       ),
-      body: Column(
-        children: [
-          // Filter section
-          _buildFilters(isDark),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => matchController.loadCompletedMatches(refresh: true),
-              color: AppTheme.primaryGreen,
-              child: Obx(() {
-              if (matchController.error != null && matchController.completedMatches.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                        const SizedBox(height: 16),
-                        Text(
-                          matchController.error!,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(color: Colors.red),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => matchController.loadCompletedMatches(refresh: true),
-                          child: const Text('Try Again'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Filter section
+            _buildFilters(isDark),
 
-              if (matchController.isLoading &&
-                  matchController.completedMatches.isEmpty) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final filteredMatches = matchController.completedMatches.where((match) {
-                final matchesName = match.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                    match.teamAName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                    match.teamBName.toLowerCase().contains(_searchQuery.toLowerCase());
-                
-                bool matchesDate = true;
-                if (_selectedDate != null) {
-                  final mDate = match.completedAt ?? match.createdAt;
-                  matchesDate = mDate.year == _selectedDate!.year &&
-                      mDate.month == _selectedDate!.month &&
-                      mDate.day == _selectedDate!.day;
-                }
-
-                return matchesName && matchesDate;
-              }).toList();
-
-              if (filteredMatches.isEmpty) {
-                return SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: Container(
-                    height: MediaQuery.of(context).size.height * 0.6,
-                    alignment: Alignment.center,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          matchController.completedMatches.isEmpty 
-                            ? Icons.history 
-                            : Icons.search_off_rounded,
-                          size: 64,
-                          color: isDark ? Colors.white24 : Colors.grey[300],
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh:
+                    () => matchController.loadCompletedMatches(refresh: true),
+                color: AppTheme.primaryGreen,
+                child: Obx(() {
+                  if (matchController.error != null &&
+                      matchController.completedMatches.isEmpty) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 48,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              matchController.error!,
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(color: Colors.red),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed:
+                                  () => matchController.loadCompletedMatches(
+                                    refresh: true,
+                                  ),
+                              child: const Text('Try Again'),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          matchController.completedMatches.isEmpty
-                            ? 'No completed matches yet'
-                            : 'No matches match your filters',
-                          style: GoogleFonts.outfit(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        if (matchController.completedMatches.isNotEmpty)
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _searchController.clear();
-                                _searchQuery = '';
-                                _selectedDate = null;
-                              });
-                            },
-                            child: const Text('Clear Filters'),
-                          ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Pull down to refresh',
-                          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.withOpacity(0.5)),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount:
-                    filteredMatches.length + (matchController.isLoading ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index < filteredMatches.length) {
-                    return _buildHistoryCard(filteredMatches[index], isDark);
-                  } else {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: CircularProgressIndicator()),
+                      ),
                     );
                   }
-                },
-              );
-            }),
-          ),
+
+                  if (matchController.isHistoryLoading &&
+                      matchController.completedMatches.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final filteredMatches =
+                      matchController.completedMatches.where((match) {
+                        final matchesName =
+                            match.title.toLowerCase().contains(
+                              _searchQuery.toLowerCase(),
+                            ) ||
+                            match.teamAName.toLowerCase().contains(
+                              _searchQuery.toLowerCase(),
+                            ) ||
+                            match.teamBName.toLowerCase().contains(
+                              _searchQuery.toLowerCase(),
+                            );
+
+                        bool matchesDate = true;
+                        if (_selectedDate != null) {
+                          final mDate = match.completedAt ?? match.createdAt;
+                          matchesDate =
+                              mDate.year == _selectedDate!.year &&
+                              mDate.month == _selectedDate!.month &&
+                              mDate.day == _selectedDate!.day;
+                        }
+
+                        return matchesName && matchesDate;
+                      }).toList();
+
+                  if (filteredMatches.isEmpty) {
+                    return SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: Container(
+                        height: MediaQuery.of(context).size.height * 0.6,
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              matchController.completedMatches.isEmpty
+                                  ? Icons.history
+                                  : Icons.search_off_rounded,
+                              size: 64,
+                              color: isDark ? Colors.white24 : Colors.grey[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              matchController.completedMatches.isEmpty
+                                  ? 'No completed matches yet'
+                                  : 'No matches match your filters',
+                              style: GoogleFonts.outfit(
+                                fontSize: 18,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            if (matchController.completedMatches.isNotEmpty)
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _searchController.clear();
+                                    _searchQuery = '';
+                                    _selectedDate = null;
+                                  });
+                                },
+                                child: const Text('Clear Filters'),
+                              ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Pull down to refresh',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey.withOpacity(0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount:
+                        filteredMatches.length +
+                        (matchController.isLoading ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index < filteredMatches.length) {
+                        return _buildHistoryCard(
+                          filteredMatches[index],
+                          isDark,
+                        );
+                      } else {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                    },
+                  );
+                }),
+              ),
+            ),
+          ],
         ),
-        ],
       ),
     );
   }
@@ -236,15 +264,16 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
             decoration: InputDecoration(
               hintText: 'Search by team or match name...',
               prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                    )
-                  : null,
+              suffixIcon:
+                  _searchQuery.isNotEmpty
+                      ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                      : null,
               filled: true,
               fillColor: isDark ? const Color(0xFF1B263B) : Colors.white,
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -270,9 +299,7 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                       ),
                       decoration: BoxDecoration(
                         color:
-                            isDark
-                                ? const Color(0xFF1B263B)
-                                : Colors.grey[100],
+                            isDark ? const Color(0xFF1B263B) : Colors.grey[100],
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
@@ -313,14 +340,14 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                             ),
                           ),
                           if (_selectedDate != null) ...[
-                            const Spacer(),
+                            const SizedBox(width: 4),
                             GestureDetector(
                               onTap: () {
                                 setState(() => _selectedDate = null);
                               },
                               child: const Icon(
                                 Icons.close,
-                                size: 16,
+                                size: 14,
                                 color: Colors.red,
                               ),
                             ),
@@ -331,6 +358,55 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
+              Obx(() {
+                final filteredMatches =
+                    matchController.completedMatches.where((match) {
+                      final matchesName =
+                          match.title.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          match.teamAName.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          match.teamBName.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          );
+
+                      bool matchesDate = true;
+                      if (_selectedDate != null) {
+                        final mDate = match.completedAt ?? match.createdAt;
+                        matchesDate =
+                            mDate.year == _selectedDate!.year &&
+                            mDate.month == _selectedDate!.month &&
+                            mDate.day == _selectedDate!.day;
+                      }
+
+                      return matchesName && matchesDate;
+                    }).toList();
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryGreen.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.primaryGreen.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    '${filteredMatches.length}',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primaryGreen,
+                    ),
+                  ),
+                );
+              }),
             ],
           ),
         ],

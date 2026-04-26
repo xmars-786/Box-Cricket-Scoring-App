@@ -67,6 +67,27 @@ class AdminController extends GetxController {
     }
   }
 
+  Future<void> updateUserDetails({
+    required String uid,
+    String? name,
+    String? role,
+  }) async {
+    try {
+      final Map<String, dynamic> updates = {};
+      if (name != null) updates['name'] = name;
+      if (role != null) updates['role'] = role;
+
+      if (updates.isEmpty) return;
+
+      await _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(uid)
+          .update(updates);
+    } catch (e) {
+      Get.snackbar('Error', 'Failed to update user: $e');
+    }
+  }
+
   Future<void> updateUserRole(String uid, String newRole) async {
     try {
       await _firestore.collection(AppConstants.usersCollection).doc(uid).update(
