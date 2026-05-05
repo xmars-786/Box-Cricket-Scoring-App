@@ -115,62 +115,64 @@ class AuthController extends GetxController {
       _isLoading.value = true;
       _error.value = null;
 
-      // ── 1. Check for admin pre-registration ───────────────
-      final preRegQuery =
+      // ── 1. Check if phone already exists ───────────────
+      final existingQuery =
           await _firestore
               .collection(AppConstants.usersCollection)
               .where('phone', isEqualTo: phone)
-              .where('is_pre_registered', isEqualTo: true)
               .limit(1)
               .get();
 
-      final isPreRegistered = preRegQuery.docs.isNotEmpty;
-      final preRegDoc = isPreRegistered ? preRegQuery.docs.first : null;
+      final bool phoneExists = existingQuery.docs.isNotEmpty;
+      DocumentSnapshot? preRegDoc;
+      bool isPreRegistered = false;
 
-      // ── 2. If NOT pre-registered, check phone isn't taken ─
-      if (!isPreRegistered) {
-        final existingQuery =
-            await _firestore
-                .collection(AppConstants.usersCollection)
-                .where('phone', isEqualTo: phone)
-                .limit(1)
-                .get();
-
-        if (existingQuery.docs.isNotEmpty) {
+      if (phoneExists) {
+        final docData =
+            existingQuery.docs.first.data() as Map<String, dynamic>?;
+        if (docData != null && docData['is_pre_registered'] == true) {
+          isPreRegistered = true;
+          preRegDoc = existingQuery.docs.first;
+        } else {
           throw 'This phone number is already registered. Please sign in.';
         }
       }
 
-      // ── 3. Create Firebase Auth account ───────────────────
+      // ── 3. Create Auth account & Upload image in parallel ───────────────────
       final email = _toAuthEmail(phone);
-      final credential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
 
-      if (credential.user == null)
+      final Future<UserCredential> authFuture = _auth
+          .createUserWithEmailAndPassword(email: email, password: password);
+
+      final Future<String?> imageFuture =
+          profileImage != null
+              ? CloudinaryService.uploadImage(profileImage)
+              : Future.value(null);
+
+      final results = await Future.wait([authFuture, imageFuture]);
+      final credential = results[0] as UserCredential;
+      final imageUrl = results[1] as String?;
+
+      if (credential.user == null) {
         throw 'Registration failed. Please try again.';
+      }
       final uid = credential.user!.uid;
 
-      // ── 4. Upload profile image if provided ───────────────
-      String? imageUrl;
-      if (profileImage != null) {
-        imageUrl = await CloudinaryService.uploadImage(profileImage);
-      }
+      final Map<String, dynamic>? preDataMap =
+          isPreRegistered ? preRegDoc!.data() as Map<String, dynamic>? : null;
 
       await credential.user!.updateDisplayName(
-        isPreRegistered ? (preRegDoc!.data()['name'] ?? name) : name,
+        isPreRegistered ? (preDataMap?['name'] ?? name) : name,
       );
 
       // ── 5. Build the user doc ─────────────────────────────
       if (isPreRegistered) {
         // Migrate pre-registration data → new doc with Auth UID
-        final preData = preRegDoc!.data();
         final migratedUser = AppUser(
           uid: uid,
-          name: preData['name'] ?? name, // keep admin-entered name
+          name: preDataMap?['name'] ?? name, // keep admin-entered name
           phone: phone,
-          role: preData['role'] ?? AppConstants.rolePlayer,
+          role: preDataMap?['role'] ?? AppConstants.rolePlayer,
           isApproved: true, // already approved by admin
           isPreRegistered: false, // now a real account
           profileImageUrl: imageUrl, // player's own photo
@@ -182,7 +184,7 @@ class AuthController extends GetxController {
           _firestore.collection(AppConstants.usersCollection).doc(uid),
           migratedUser.toFirestore(),
         );
-        batch.delete(preRegDoc.reference);
+        batch.delete(preRegDoc!.reference);
         await batch.commit();
 
         // Pre-registered players are already approved — show & redirect to login
@@ -262,6 +264,9 @@ class AuthController extends GetxController {
           return false;
         }
         _currentUser.value = user;
+        UIUtils.showSuccess('Login successful! Welcome ${user.name}.');
+      } else {
+        UIUtils.showSuccess('Login successful!');
       }
 
       _isLoading.value = false;

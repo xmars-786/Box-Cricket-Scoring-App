@@ -32,33 +32,33 @@ class DefaultFirebaseOptions {
   // TODO: Replace with your actual Firebase Web config
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBCy4Pa8O3hfz0S3JCd-Qpz6BMDCfB6fNg',
-    appId: '1:82559395274:web:0129ad16c0e568c610db33',
-    messagingSenderId: '82559395274',
-    projectId: 'boxcricketapp-e9a33',
-    authDomain: 'boxcricketapp-e9a33.firebaseapp.com',
-    storageBucket: 'boxcricketapp-e9a33.firebasestorage.app',
-    measurementId: 'G-0FL52LX0ZE',
+    apiKey: 'AIzaSyDUBi9wBgyvtD0pytCD7lYFClf9q3WXM7U',
+    appId: '1:553625928363:web:338c4cb521dee62f5aedee',
+    messagingSenderId: '553625928363',
+    projectId: 'cricket-app-69f9c',
+    authDomain: 'cricket-app-69f9c.firebaseapp.com',
+    storageBucket: 'cricket-app-69f9c.firebasestorage.app',
+    measurementId: 'G-2VQEB62WKD',
   );
 
   // Go to Firebase Console → Project Settings → General → Web App
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyD23DrIaIO-dkB94nlZzbPNqwaAHi_E3O4',
-    appId: '1:82559395274:android:5715b79c7ce85b1410db33',
-    messagingSenderId: '82559395274',
-    projectId: 'boxcricketapp-e9a33',
-    storageBucket: 'boxcricketapp-e9a33.firebasestorage.app',
+    apiKey: 'AIzaSyCPGJg2T8CNqYOOkgLmOiRN5A68SkStj6E',
+    appId: '1:553625928363:android:495caa338c0d1ef25aedee',
+    messagingSenderId: '553625928363',
+    projectId: 'cricket-app-69f9c',
+    storageBucket: 'cricket-app-69f9c.firebasestorage.app',
   );
 
   // TODO: Replace with your actual Firebase Android config
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAdUZykGDnb9hVu91E5tF23rsPfebjtO_c',
-    appId: '1:82559395274:ios:d4c6d2030f31d03a10db33',
-    messagingSenderId: '82559395274',
-    projectId: 'boxcricketapp-e9a33',
-    storageBucket: 'boxcricketapp-e9a33.firebasestorage.app',
+    apiKey: 'AIzaSyCee0IQ0uktxUuaoTxEjYHcCJGADlREPaQ',
+    appId: '1:553625928363:ios:aff2bd06a63a54e15aedee',
+    messagingSenderId: '553625928363',
+    projectId: 'cricket-app-69f9c',
+    storageBucket: 'cricket-app-69f9c.firebasestorage.app',
     iosBundleId: 'com.boxcricket.boxCricket',
   );
 

@@ -61,23 +61,51 @@ class PlayerModel {
       role: map['role'] ?? 'all_rounder',
       teamId: map['team_id'] ?? 'A',
       profileImageUrl: map['profile_image_url'],
-      runsScored: map['runs_scored'] ?? 0,
-      ballsFaced: map['balls_faced'] ?? 0,
-      fours: map['fours'] ?? 0,
-      sixes: map['sixes'] ?? 0,
+      runsScored: (map['runs_scored'] as num?)?.toInt() ?? 0,
+      ballsFaced: (map['balls_faced'] as num?)?.toInt() ?? 0,
+      fours: (map['fours'] as num?)?.toInt() ?? 0,
+      sixes: (map['sixes'] as num?)?.toInt() ?? 0,
       isOut: map['is_out'] ?? false,
       dismissalType: map['dismissal_type'],
       dismissedBy: map['dismissed_by'],
       oversPlayed: (map['overs_played'] ?? 0).toDouble(),
-      oversBowled: map['overs_bowled'] ?? 0,
-      ballsBowled: map['balls_bowled'] ?? 0,
-      runsConceded: map['runs_conceded'] ?? 0,
-      wicketsTaken: map['wickets_taken'] ?? 0,
-      widesBowled: map['wides_bowled'] ?? 0,
-      noBallsBowled: map['no_balls_bowled'] ?? 0,
-      maidens: map['maidens'] ?? 0,
-      catches: map['catches'] ?? 0,
-      legalBallsFaced: map['legal_balls_faced'] ?? 0,
+      oversBowled: (map['overs_bowled'] as num?)?.toInt() ?? 0,
+      ballsBowled: (map['balls_bowled'] as num?)?.toInt() ?? 0,
+      runsConceded: (map['runs_conceded'] as num?)?.toInt() ?? 0,
+      wicketsTaken: (map['wickets_taken'] as num?)?.toInt() ?? 0,
+      widesBowled: (map['wides_bowled'] as num?)?.toInt() ?? 0,
+      noBallsBowled: (map['no_balls_bowled'] as num?)?.toInt() ?? 0,
+      maidens: (map['maidens'] as num?)?.toInt() ?? 0,
+      catches: (map['catches'] as num?)?.toInt() ?? 0,
+      legalBallsFaced: (map['legal_balls_faced'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  factory PlayerModel.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return PlayerModel(
+      id: doc.id,
+      name: data['name'] ?? data['displayName'] ?? '',
+      role: data['role'] ?? 'all_rounder',
+      teamId: data['team_id'] ?? 'A',
+      profileImageUrl: data['profile_image_url'] ?? data['photoURL'],
+      runsScored: (data['runs_scored'] as num?)?.toInt() ?? 0,
+      ballsFaced: (data['balls_faced'] as num?)?.toInt() ?? 0,
+      fours: (data['fours'] as num?)?.toInt() ?? 0,
+      sixes: (data['sixes'] as num?)?.toInt() ?? 0,
+      isOut: data['is_out'] ?? false,
+      dismissalType: data['dismissal_type'],
+      dismissedBy: data['dismissed_by'],
+      oversPlayed: (data['overs_played'] ?? 0).toDouble(),
+      oversBowled: (data['overs_bowled'] as num?)?.toInt() ?? 0,
+      ballsBowled: (data['balls_bowled'] as num?)?.toInt() ?? 0,
+      runsConceded: (data['runs_conceded'] as num?)?.toInt() ?? 0,
+      wicketsTaken: (data['wickets_taken'] as num?)?.toInt() ?? 0,
+      widesBowled: (data['wides_bowled'] as num?)?.toInt() ?? 0,
+      noBallsBowled: (data['no_balls_bowled'] as num?)?.toInt() ?? 0,
+      maidens: (data['maidens'] as num?)?.toInt() ?? 0,
+      catches: (data['catches'] as num?)?.toInt() ?? 0,
+      legalBallsFaced: (data['legal_balls_faced'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -190,4 +218,37 @@ class PlayerModel {
 
   /// Total balls bowled
   int get totalBowlingBalls => ballsBowled;
+
+  /// Calculate MOTM score for this player
+  double calculateMOTMScore(String winningTeamId) {
+    // Man of the Match MUST be from the winning team
+    if (winningTeamId.isNotEmpty && teamId != winningTeamId) {
+      return -1.0; // Ineligible
+    }
+
+    double score = (runsScored * 1.0) +
+        (wicketsTaken * 20.0) +
+        (catches * 10.0) +
+        (maidens * 15.0);
+
+    // Economy Bonus
+    final totalBalls = ballsBowled;
+    if (totalBalls >= 6) {
+      double overs = (totalBalls ~/ 6) + (totalBalls % 6) / 6.0;
+      double econ = runsConceded / overs;
+      if (econ < 6.0) score += 10;
+    }
+
+    // Strike Rate Bonus
+    if (ballsFaced >= 10) {
+      if (strikeRate > 150.0) score += 10;
+    }
+
+    // Winning Team Bonus
+    if (winningTeamId.isNotEmpty && teamId == winningTeamId) {
+      score += 10;
+    }
+
+    return score;
+  }
 }

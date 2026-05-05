@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:printing/printing.dart';
 import '../constants/app_constants.dart';
 import '../models/match_model.dart';
 import '../models/player_model.dart';
@@ -14,6 +12,51 @@ class PdfService {
     Map<String, PlayerModel> players,
   ) async {
     final pdf = pw.Document();
+
+    // Determine Man of the Match
+    String motmName =
+        (match.manOfTheMatchMap?['name']?.toString() ??
+                match.manOfMatchName ??
+                "")
+            .trim();
+    PlayerModel? motmPlayer =
+        match.manOfMatch != null ? players[match.manOfMatch] : null;
+    String? motmTeam =
+        (match.manOfTheMatchMap?['team']?.toString()) ??
+        (motmPlayer?.teamId == 'A'
+            ? match.teamAName
+            : (motmPlayer?.teamId == 'B' ? match.teamBName : null));
+
+    if (motmName.isEmpty && match.isCompleted && players.isNotEmpty) {
+      String winningTeamId = '';
+      if (match.result != null) {
+        if (match.result!.toLowerCase().contains(
+          match.teamAName.toLowerCase(),
+        )) {
+          winningTeamId = 'A';
+        } else if (match.result!.toLowerCase().contains(
+          match.teamBName.toLowerCase(),
+        )) {
+          winningTeamId = 'B';
+        }
+      }
+
+      PlayerModel? bestP;
+      double bestS = -1;
+      for (var p in players.values) {
+        double s = p.calculateMOTMScore(winningTeamId);
+        if (s > bestS) {
+          bestS = s;
+          bestP = p;
+        }
+      }
+
+      if (bestP != null) {
+        motmName = bestP.name;
+        motmPlayer = bestP;
+        motmTeam = bestP.teamId == 'A' ? match.teamAName : match.teamBName;
+      }
+    }
 
     // Load custom fonts if needed, but standard ones are fine for now
     // final font = await rootBundle.load("assets/fonts/Inter-Regular.ttf");
@@ -44,7 +87,10 @@ class PdfService {
                       ),
                       pw.Text(
                         match.title,
-                        style: pw.TextStyle(fontSize: 14, color: PdfColors.grey700),
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                          color: PdfColors.grey700,
+                        ),
                       ),
                     ],
                   ),
@@ -52,14 +98,22 @@ class PdfService {
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
                       pw.Text(
-                        match.groundName.isNotEmpty ? match.groundName : 'Local Ground',
-                        style: pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
+                        match.groundName.isNotEmpty
+                            ? match.groundName
+                            : 'Local Ground',
+                        style: pw.TextStyle(
+                          fontSize: 12,
+                          color: PdfColors.grey600,
+                        ),
                       ),
                       pw.Text(
-                        match.completedAt != null 
-                          ? '${match.completedAt!.day}/${match.completedAt!.month}/${match.completedAt!.year}'
-                          : '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
-                        style: pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
+                        match.completedAt != null
+                            ? '${match.completedAt!.day}/${match.completedAt!.month}/${match.completedAt!.year}'
+                            : '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+                        style: pw.TextStyle(
+                          fontSize: 12,
+                          color: PdfColors.grey600,
+                        ),
                       ),
                     ],
                   ),
@@ -90,14 +144,76 @@ class PdfService {
               ),
             ),
 
-            pw.SizedBox(height: 30),
+            pw.SizedBox(height: 20),
+
+            // Man of the Match
+            if (motmName.isNotEmpty) ...[
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.amber50,
+                  borderRadius: pw.BorderRadius.circular(8),
+                  border: pw.Border.all(color: PdfColors.amber200),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                  children: [
+                    pw.Text(
+                      'MAN OF THE MATCH: ',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.amber900,
+                      ),
+                    ),
+                    pw.Text(
+                      motmName.toUpperCase(),
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.black,
+                      ),
+                    ),
+                    if (motmTeam != null)
+                      pw.Text(
+                        ' ($motmTeam)',
+                        style: pw.TextStyle(
+                          fontSize: 10,
+                          color: PdfColors.grey700,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              // Optional: Brief stats for MOTM
+              if (motmPlayer != null)
+                pw.Center(
+                  child: pw.Text(
+                    'Stats: ${motmPlayer.runsScored} runs, ${motmPlayer.wicketsTaken} wickets, ${motmPlayer.catches} catches',
+                    style: const pw.TextStyle(
+                      fontSize: 9,
+                      color: PdfColors.grey600,
+                    ),
+                  ),
+                ),
+              pw.SizedBox(height: 20),
+            ],
+
+            pw.SizedBox(height: 10),
 
             // Innings 1
             _buildInningsSection(
               match.teamAName,
               match.teamAScore,
-              match.teamAPlayers.map((id) => players[id]).whereType<PlayerModel>().toList(),
-              players.values.where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0).toList(),
+              match.teamAPlayers
+                  .map((id) => players[id])
+                  .whereType<PlayerModel>()
+                  .toList(),
+              players.values
+                  .where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0)
+                  .toList(),
               players,
             ),
 
@@ -107,20 +223,29 @@ class PdfService {
             _buildInningsSection(
               match.teamBName,
               match.teamBScore,
-              match.teamBPlayers.map((id) => players[id]).whereType<PlayerModel>().toList(),
-              players.values.where((p) => p.teamId == 'A' && p.totalBowlingBalls > 0).toList(),
+              match.teamBPlayers
+                  .map((id) => players[id])
+                  .whereType<PlayerModel>()
+                  .toList(),
+              players.values
+                  .where((p) => p.teamId == 'A' && p.totalBowlingBalls > 0)
+                  .toList(),
               players,
             ),
 
             pw.SizedBox(height: 40),
-            
+
             // Footer
             pw.Divider(),
             pw.SizedBox(height: 10),
             pw.Center(
               child: pw.Text(
                 'Generated by ${AppConstants.appName} App • ${AppConstants.developedBy}',
-                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey500, fontStyle: pw.FontStyle.italic),
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.grey500,
+                  fontStyle: pw.FontStyle.italic,
+                ),
               ),
             ),
           ];
@@ -129,15 +254,14 @@ class PdfService {
     );
 
     // Save and Share
-    final output = await getTemporaryDirectory();
-    // Clean filename for filesystem
+    final bytes = await pdf.save();
     final safeTitle = match.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-    final file = File("${output.path}/$safeTitle.pdf");
-    await file.writeAsBytes(await pdf.save());
+    final fileName = "$safeTitle.pdf";
 
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: 'Check out this match scorecard: ${match.title}',
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: fileName,
+      subject: 'Match Scorecard: ${match.title}',
     );
   }
 
@@ -163,11 +287,17 @@ class PdfService {
             children: [
               pw.Text(
                 teamName.toUpperCase(),
-                style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold),
+                style: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
               ),
               pw.Text(
                 '${score.runs}/${score.wickets} (${score.oversDisplay} ov)',
-                style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold),
+                style: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -200,25 +330,39 @@ class PdfService {
               ],
             ),
             // Table Rows
-            ...batsmen.map((p) => pw.TableRow(
-              children: [
-                pw.Padding(
-                  padding: const pw.EdgeInsets.all(6),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(p.name, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                      pw.Text(_getDismissalText(p, players), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-                    ],
+            ...batsmen.map(
+              (p) => pw.TableRow(
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          p.name,
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
+                        pw.Text(
+                          _getDismissalText(p, players),
+                          style: const pw.TextStyle(
+                            fontSize: 8,
+                            color: PdfColors.grey600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                _pdfDataCell('${p.runsScored}'),
-                _pdfDataCell('${p.ballsFaced}'),
-                _pdfDataCell('${p.fours}'),
-                _pdfDataCell('${p.sixes}'),
-                _pdfDataCell(p.strikeRate.toStringAsFixed(1)),
-              ],
-            )),
+                  _pdfDataCell('${p.runsScored}'),
+                  _pdfDataCell('${p.ballsFaced}'),
+                  _pdfDataCell('${p.fours}'),
+                  _pdfDataCell('${p.sixes}'),
+                  _pdfDataCell(p.strikeRate.toStringAsFixed(1)),
+                ],
+              ),
+            ),
           ],
         ),
 
@@ -258,19 +402,27 @@ class PdfService {
                 _pdfHeaderCell('Econ'),
               ],
             ),
-            ...bowlers.map((p) => pw.TableRow(
-              children: [
-                pw.Padding(
-                  padding: const pw.EdgeInsets.all(6),
-                  child: pw.Text(p.name, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                ),
-                _pdfDataCell(p.oversBowledDisplay),
-                _pdfDataCell('${p.runsConceded}'),
-                _pdfDataCell('${p.wicketsTaken}'),
-                _pdfDataCell('${p.widesBowled}'),
-                _pdfDataCell(p.economyRate.toStringAsFixed(1)),
-              ],
-            )),
+            ...bowlers.map(
+              (p) => pw.TableRow(
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Text(
+                      p.name,
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  _pdfDataCell(p.oversBowledDisplay),
+                  _pdfDataCell('${p.runsConceded}'),
+                  _pdfDataCell('${p.wicketsTaken}'),
+                  _pdfDataCell('${p.widesBowled}'),
+                  _pdfDataCell(p.economyRate.toStringAsFixed(1)),
+                ],
+              ),
+            ),
           ],
         ),
       ],
@@ -299,23 +451,30 @@ class PdfService {
     );
   }
 
-  static String _getDismissalText(PlayerModel player, Map<String, PlayerModel> players) {
+  static String _getDismissalText(
+    PlayerModel player,
+    Map<String, PlayerModel> players,
+  ) {
     if (!player.isOut) {
       return player.ballsFaced > 0 ? 'not out' : '';
     }
-    if (player.dismissalType == null || player.dismissalType!.isEmpty) return 'out';
+    if (player.dismissalType == null || player.dismissalType!.isEmpty)
+      return 'out';
 
     final type = player.dismissalType!;
-    final bowlerName = player.dismissedBy != null && player.dismissedBy!.isNotEmpty
-        ? (players[player.dismissedBy!]?.name ?? 'Unknown Bowler')
-        : '';
+    final bowlerName =
+        player.dismissedBy != null && player.dismissedBy!.isNotEmpty
+            ? (players[player.dismissedBy!]?.name ?? 'Unknown Bowler')
+            : '';
 
     final typeLower = type.toLowerCase();
     if (typeLower.startsWith('caught')) {
       final fielderMatches = RegExp(r'\((.*?)\)').firstMatch(type);
       final fielderName = fielderMatches?.group(1);
       if (fielderName != null) {
-        return bowlerName.isNotEmpty ? 'c $fielderName b $bowlerName' : 'c $fielderName';
+        return bowlerName.isNotEmpty
+            ? 'c $fielderName b $bowlerName'
+            : 'c $fielderName';
       }
       return bowlerName.isNotEmpty ? 'c ? b $bowlerName' : 'caught';
     } else if (typeLower == 'bowled') {
@@ -327,7 +486,8 @@ class PdfService {
     } else if (typeLower == 'run out' || typeLower == 'run_out') {
       return 'run out';
     } else {
-      return type.replaceAll('_', ' ') + (bowlerName.isNotEmpty ? ' b $bowlerName' : '');
+      return type.replaceAll('_', ' ') +
+          (bowlerName.isNotEmpty ? ' b $bowlerName' : '');
     }
   }
 }

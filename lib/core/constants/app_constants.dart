@@ -20,6 +20,7 @@ class AppConstants {
 
   // ─── Firestore Collections ──────────────────────────────
   static const String matchesCollection = 'matches';
+  static const String tournamentsCollection = 'tournaments';
   static const String usersCollection = 'users';
   static const String ballLogsCollection = 'ball_logs';
   static const String playerStatsCollection = 'player_stats';
@@ -52,7 +53,7 @@ class AppConstants {
   static const String dismissalHitWicket = 'hit_wicket';
 
   // ─── App Metadata ───────────────────────────────────────
-  static const String appName = 'X Cricket';
-  static const String developedBy = 'DEVELOPED BY XMARS';
+  static const String appName = 'Apna Score';
+  static const String developedBy = 'DEVELOPED BY Mammu';
   static const String appVersion = 'v1.0.0';
 }

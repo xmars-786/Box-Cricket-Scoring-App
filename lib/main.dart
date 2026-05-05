@@ -11,6 +11,9 @@ import 'core/controllers/scoring_controller.dart';
 import 'core/controllers/rules_controller.dart';
 import 'core/controllers/theme_controller.dart';
 import 'core/controllers/connectivity_controller.dart';
+import 'core/controllers/tournament_controller.dart';
+import 'core/controllers/team_controller.dart';
+import 'core/controllers/leaderboard_controller.dart';
 import 'firebase_options.dart';
 
 /// Entry point for the Box Cricket Scoring App.
@@ -36,6 +39,9 @@ void main() async {
   Get.put(MatchController());
   Get.put(ScoringController()); // Depends on AuthController
   Get.put(ConnectivityController());
+  Get.put(TournamentController());
+  Get.put(TeamController());
+  Get.put(LeaderboardController());
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

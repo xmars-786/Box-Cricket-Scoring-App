@@ -101,53 +101,45 @@ class _SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors:
-                isDark
-                    ? [const Color(0xFF0D1B2A), const Color(0xFF1B263B)]
-                    : [const Color(0xFF667EEA), const Color(0xFF764BA2)],
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/splash_bg.png'),
+            fit: BoxFit.cover,
           ),
         ),
         child: SafeArea(
           child: Stack(
             children: [
+              // Subtle overlay for readability
+              Container(color: Colors.black.withOpacity(0.3)),
               Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.sports_cricket,
-                        size: 80,
-                        color: Colors.white,
-                      ),
+                    const Icon(
+                      Icons.sports_cricket_rounded,
+                      color: Colors.white,
+                      size: 80,
                     ),
                     const SizedBox(height: 24),
                     Text(
                       AppConstants.appName,
                       style: GoogleFonts.outfit(
-                        fontSize: 36,
+                        fontSize: 40,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
+                        letterSpacing: 1.5,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Live Scoring & Stats',
                       style: GoogleFonts.inter(
-                        fontSize: 16,
-                        color: Colors.white70,
+                        fontSize: 18,
+                        color: Colors.white.withOpacity(0.8),
+                        letterSpacing: 1.2,
                       ),
                     ),
                     const SizedBox(height: 48),
@@ -167,7 +159,7 @@ class _SplashScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 24.0),
                   child: Text(
-                    'DEVELOPED BY XMARS v1.0.0',
+                    '${AppConstants.developedBy} ${AppConstants.appVersion}',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

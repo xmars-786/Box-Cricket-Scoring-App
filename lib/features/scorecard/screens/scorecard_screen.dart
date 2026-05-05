@@ -1,12 +1,20 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:get/get.dart';
 
+import '../../../core/controllers/scoring_controller.dart';
+import '../../../core/controllers/auth_controller.dart';
+import '../../../core/controllers/match_controller.dart';
 import '../../../core/models/match_model.dart';
 import '../../../core/models/player_model.dart';
+import '../../../core/models/partnership_model.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../match/widgets/motm_award_card.dart';
+import '../../explore/screens/player_profile_screen.dart';
 
 /// Full scorecard view with batting and bowling tables.
-class ScorecardScreen extends StatelessWidget {
+class ScorecardScreen extends StatefulWidget {
   final MatchModel match;
   final Map<String, PlayerModel> players;
 
@@ -17,8 +25,78 @@ class ScorecardScreen extends StatelessWidget {
   });
 
   @override
+  State<ScorecardScreen> createState() => _ScorecardScreenState();
+}
+
+class _ScorecardScreenState extends State<ScorecardScreen> {
+  List<String> _teamABowlingSequence = [];
+  List<String> _teamBBowlingSequence = [];
+  bool _isFetchingBowlingOrder = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _teamABowlingSequence = List.from(widget.match.teamABowlingOrder);
+    _teamBBowlingSequence = List.from(widget.match.teamBBowlingOrder);
+
+    // If order is missing (old data), try to fetch from ball logs
+    if (_teamABowlingSequence.isEmpty || _teamBBowlingSequence.isEmpty) {
+      _fetchBowlingOrderFromLogs();
+    }
+  }
+
+  Future<void> _fetchBowlingOrderFromLogs() async {
+    if (_isFetchingBowlingOrder) return;
+    setState(() => _isFetchingBowlingOrder = true);
+
+    try {
+      final logsSnap =
+          await FirebaseFirestore.instance
+              .collection('matches')
+              .doc(widget.match.id)
+              .collection('ball_logs')
+              .orderBy('timestamp', descending: false)
+              .get();
+
+      final Set<String> teamASeq = {};
+      final Set<String> teamBSeq = {};
+
+      for (var doc in logsSnap.docs) {
+        final data = doc.data();
+        final bowlerId = data['bowler_id'] as String?;
+        final innings = data['innings'] as String?;
+
+        if (bowlerId != null && innings != null) {
+          if (innings == 'A') {
+            // If innings is A, B was bowling
+            teamBSeq.add(bowlerId);
+          } else {
+            // If innings is B, A was bowling
+            teamASeq.add(bowlerId);
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (_teamABowlingSequence.isEmpty)
+            _teamABowlingSequence = teamASeq.toList();
+          if (_teamBBowlingSequence.isEmpty)
+            _teamBBowlingSequence = teamBSeq.toList();
+          _isFetchingBowlingOrder = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching bowling order: $e');
+      if (mounted) setState(() => _isFetchingBowlingOrder = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final match = widget.match;
+    final players = widget.players;
 
     // Get all players for Team A and Team B from the match player lists
     final teamABatsmen =
@@ -33,14 +111,46 @@ class ScorecardScreen extends StatelessWidget {
             .whereType<PlayerModel>()
             .toList();
 
+    // Get Participation Order from Match Data
+    // Fallback: If the new order lists are empty, try to derive from partnerships (for old matches)
+    List<String> getBattingSequence(String teamId) {
+      final List<String> order =
+          teamId == 'A' ? match.teamABattingOrder : match.teamBBattingOrder;
+      if (order.isNotEmpty) return order;
+
+      // Fallback for old matches: scan partnerships
+      final Set<String> sequence = {};
+      final partnerships =
+          teamId == 'A' ? match.teamAPartnerships : match.teamBPartnerships;
+      for (var p in partnerships) {
+        sequence.add(p.batterAId);
+        sequence.add(p.batterBId);
+      }
+      return sequence.toList();
+    }
+
+    final teamASeq = getBattingSequence('A');
+    final teamBSeq = getBattingSequence('B');
+
     // Sort to show those who have batted first, then those yet to bat
-    // Batted = faced balls or is out
+    // Use the actual batting sequence as the primary order key
     teamABatsmen.sort((a, b) {
       final aBatted = a.ballsFaced > 0 || a.isOut;
       final bBatted = b.ballsFaced > 0 || b.isOut;
       if (aBatted && !bBatted) return -1;
       if (!aBatted && bBatted) return 1;
-      return 0;
+
+      // If both played, follow actual batting sequence
+      final idxA = teamASeq.indexOf(a.id);
+      final idxB = teamASeq.indexOf(b.id);
+      if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+
+      // Stable sort: keep original squad order for those who haven't batted
+      return match.teamAPlayers
+          .indexOf(a.id)
+          .compareTo(match.teamAPlayers.indexOf(b.id));
     });
 
     teamBBatsmen.sort((a, b) {
@@ -48,99 +158,162 @@ class ScorecardScreen extends StatelessWidget {
       final bBatted = b.ballsFaced > 0 || b.isOut;
       if (aBatted && !bBatted) return -1;
       if (!aBatted && bBatted) return 1;
-      return 0;
+
+      final idxA = teamBSeq.indexOf(a.id);
+      final idxB = teamBSeq.indexOf(b.id);
+      if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+
+      return match.teamBPlayers
+          .indexOf(a.id)
+          .compareTo(match.teamBPlayers.indexOf(b.id));
     });
 
     final teamABowlers =
         players.values
             .where((p) => p.teamId == 'A' && p.totalBowlingBalls > 0)
             .toList();
+    // Sort bowlers by actual participation order, fallback to squad index
+    teamABowlers.sort((a, b) {
+      final idxA = _teamABowlingSequence.indexOf(a.id);
+      final idxB = _teamABowlingSequence.indexOf(b.id);
+      if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+      return match.teamAPlayers
+          .indexOf(a.id)
+          .compareTo(match.teamAPlayers.indexOf(b.id));
+    });
 
     final teamBBowlers =
         players.values
             .where((p) => p.teamId == 'B' && p.totalBowlingBalls > 0)
             .toList();
-
-    final motmPlayerId = match.manOfMatch;
-    final motmPlayer = motmPlayerId != null ? players[motmPlayerId] : null;
+    // Sort bowlers by actual participation order
+    teamBBowlers.sort((a, b) {
+      final idxA = _teamBBowlingSequence.indexOf(a.id);
+      final idxB = _teamBBowlingSequence.indexOf(b.id);
+      if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+      return match.teamBPlayers
+          .indexOf(a.id)
+          .compareTo(match.teamBPlayers.indexOf(b.id));
+    });
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       children: [
-        // ── Man of the Match card (only when completed) ──────────
-        if (match.isCompleted && motmPlayer != null) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFFAB00), Color(0xFFFF6D00)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFFAB00).withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.emoji_events_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'MAN OF THE MATCH',
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white70,
-                          letterSpacing: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        motmPlayer.name,
-                        style: GoogleFonts.outfit(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${motmPlayer.runsScored} runs  •  ${motmPlayer.wicketsTaken} wickets  •  ${motmPlayer.catches} catches',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+        // ── Result (at the top) ──────────
+        if (match.result != null) ...[
+          _buildResultCard(isDark),
           const SizedBox(height: 16),
         ],
+
+        // ── Man of the Match card (only when completed) ──────────
+        if (match.isCompleted) ...[
+          Builder(
+            builder: (context) {
+              final motmMap = match.manOfTheMatchMap;
+              final motmPlayerId = match.manOfMatch;
+              final motmPlayer =
+                  motmPlayerId != null ? players[motmPlayerId] : null;
+
+              final String motmName =
+                  (motmMap?['name']?.toString() ??
+                          motmPlayer?.name ??
+                          match.manOfMatchName ??
+                          "")
+                      .trim();
+              final String? motmImage =
+                  (motmMap?['image']?.toString()) ??
+                  motmPlayer?.profileImageUrl;
+              final String? motmTeam =
+                  (motmMap?['team']?.toString()) ??
+                  (motmPlayer?.teamId == 'A'
+                      ? match.teamAName
+                      : (motmPlayer?.teamId == 'B' ? match.teamBName : null));
+
+              // Direct calculation if name is empty but match is completed
+              String displayMOTMName = motmName;
+              String? displayMOTMImage = motmImage;
+              String? displayMOTMTeam = motmTeam;
+              PlayerModel? displayMOTMPlayer = motmPlayer;
+
+              if (displayMOTMName.isEmpty &&
+                  match.isCompleted &&
+                  players.isNotEmpty) {
+                String winningTeamId = '';
+                if (match.result != null) {
+                  if (match.result!.toLowerCase().contains(
+                    match.teamAName.toLowerCase(),
+                  )) {
+                    winningTeamId = 'A';
+                  } else if (match.result!.toLowerCase().contains(
+                    match.teamBName.toLowerCase(),
+                  )) {
+                    winningTeamId = 'B';
+                  }
+                }
+
+                PlayerModel? bestP;
+                double bestS = -1;
+
+                for (var p in players.values) {
+                  double s = p.calculateMOTMScore(winningTeamId);
+                  if (s > bestS) {
+                    bestS = s;
+                    bestP = p;
+                  }
+                }
+
+                if (bestP != null) {
+                  displayMOTMName = bestP.name;
+                  displayMOTMImage = bestP.profileImageUrl;
+                  displayMOTMTeam =
+                      bestP.teamId == 'A' ? match.teamAName : match.teamBName;
+                  displayMOTMPlayer = bestP;
+                }
+              }
+
+              if (displayMOTMName.isEmpty) {
+                // Auto-generate for old completed matches that missed the calc
+                if (match.isCompleted && match.result != null) {
+                  Future.microtask(() {
+                    Get.find<ScoringController>().saveManOfMatch(
+                      match.id,
+                      match.result!,
+                    );
+                  });
+                }
+                return Column(
+                  children: [
+                    _buildSelectMOTMPlaceholder(match, isDark),
+                    const SizedBox(height: 16),
+                  ],
+                );
+              }
+
+              return Column(
+                children: [
+                  MOTMAwardCard(
+                    playerName: displayMOTMName,
+                    playerImageUrl: displayMOTMImage,
+                    teamName: displayMOTMTeam,
+                    runs: displayMOTMPlayer?.runsScored ?? 0,
+                    wickets: displayMOTMPlayer?.wicketsTaken ?? 0,
+                    catches: displayMOTMPlayer?.catches ?? 0,
+                    canEdit: false,
+                    onTap: null,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              );
+            },
+          ),
+        ],
+
         // Team A Innings
         _buildInningsHeader(match.teamAName, match.teamAScore, isDark),
         const SizedBox(height: 8),
@@ -149,6 +322,10 @@ class ScorecardScreen extends StatelessWidget {
         _buildExtrasRow(match.teamAScore, isDark),
         const SizedBox(height: 16),
         _buildBowlingTable(teamBBowlers, isDark),
+        if (match.teamAPartnerships.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildPartnershipsList(match.teamAPartnerships, isDark),
+        ],
 
         const SizedBox(height: 32),
 
@@ -160,12 +337,32 @@ class ScorecardScreen extends StatelessWidget {
         _buildExtrasRow(match.teamBScore, isDark),
         const SizedBox(height: 16),
         _buildBowlingTable(teamABowlers, isDark),
-
-        const SizedBox(height: 24),
-
-        // Result
-        if (match.result != null) _buildResultCard(isDark),
+        if (match.teamBPartnerships.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildPartnershipsList(match.teamBPartnerships, isDark),
+        ],
       ],
+    );
+  }
+
+  Widget _buildSelectMOTMPlaceholder(MatchModel match, bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+      ),
+      child: Center(
+        child: Text(
+          'Calculating Man of the Match...',
+          style: GoogleFonts.inter(
+            color: Colors.grey,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
     );
   }
 
@@ -179,7 +376,7 @@ class ScorecardScreen extends StatelessWidget {
     final type = player.dismissalType!;
     final bowlerName =
         player.dismissedBy != null && player.dismissedBy!.isNotEmpty
-            ? (players[player.dismissedBy!]?.name ?? 'Unknown Bowler')
+            ? (widget.players[player.dismissedBy!]?.name ?? 'Unknown Bowler')
             : '';
 
     final typeLower = type.toLowerCase();
@@ -347,108 +544,113 @@ class ScorecardScreen extends StatelessWidget {
   }
 
   Widget _buildBattingRow(PlayerModel player, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 4,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        player.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                    if (player.id == match.teamACaptainId ||
-                        player.id == match.teamBCaptainId) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFB800).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: const Color(0xFFFFB800).withOpacity(0.5),
-                          ),
-                        ),
-                        child: Text(
-                          'C',
-                          style: GoogleFonts.inter(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFFD49A00),
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (player.id == match.teamAViceCaptainId ||
-                        player.id == match.teamBViceCaptainId) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF64B5F6).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: const Color(0xFF64B5F6).withOpacity(0.5),
-                          ),
-                        ),
-                        child: Text(
-                          'VC',
-                          style: GoogleFonts.inter(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF1976D2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _getDismissalText(player),
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color:
-                        player.isOut
-                            ? AppTheme.wicketRed
-                            : AppTheme.primaryGreen,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+    return InkWell(
+      onTap: () {
+        Get.to(() => PlayerProfileScreen(playerId: player.id));
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
             ),
           ),
-          _dataCell('${player.runsScored}', 30, bold: true),
-          _dataCell('${player.ballsFaced}', 30),
-          _dataCell('${player.fours}', 28),
-          _dataCell('${player.sixes}', 28),
-          _dataCell(player.strikeRate.toStringAsFixed(1), 44),
-        ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          player.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      if (player.id == widget.match.teamACaptainId ||
+                          player.id == widget.match.teamBCaptainId) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFB800).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: const Color(0xFFFFB800).withOpacity(0.5),
+                            ),
+                          ),
+                          child: Text(
+                            'C',
+                            style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFD49A00),
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (player.id == widget.match.teamAViceCaptainId ||
+                          player.id == widget.match.teamBViceCaptainId) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF64B5F6).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: const Color(0xFF64B5F6).withOpacity(0.5),
+                            ),
+                          ),
+                          child: Text(
+                            'VC',
+                            style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF1976D2),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _getDismissalText(player),
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color:
+                          player.isOut
+                              ? AppTheme.wicketRed
+                              : AppTheme.primaryGreen,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _dataCell('${player.runsScored}', 30, bold: true),
+            _dataCell('${player.ballsFaced}', 30),
+            _dataCell('${player.fours}', 28),
+            _dataCell('${player.sixes}', 28),
+            _dataCell(player.strikeRate.toStringAsFixed(1), 44),
+          ],
+        ),
       ),
     );
   }
@@ -535,119 +737,271 @@ class ScorecardScreen extends StatelessWidget {
   }
 
   Widget _buildBowlingRow(PlayerModel player, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 4,
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    player.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                if (player.id == match.teamACaptainId ||
-                    player.id == match.teamBCaptainId) ...[
-                  const SizedBox(width: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFB800).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: const Color(0xFFFFB800).withOpacity(0.5),
-                      ),
-                    ),
-                    child: Text(
-                      'C',
-                      style: GoogleFonts.inter(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFD49A00),
-                      ),
-                    ),
-                  ),
-                ],
-                if (player.id == match.teamAViceCaptainId ||
-                    player.id == match.teamBViceCaptainId) ...[
-                  const SizedBox(width: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF64B5F6).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: const Color(0xFF64B5F6).withOpacity(0.5),
-                      ),
-                    ),
-                    child: Text(
-                      'VC',
-                      style: GoogleFonts.inter(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1976D2),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+    return InkWell(
+      onTap: () {
+        Get.to(() => PlayerProfileScreen(playerId: player.id));
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
             ),
           ),
-          _dataCell(player.oversBowledDisplay, 35),
-          _dataCell('${player.runsConceded}', 35, bold: true),
-          _dataCell(
-            '${player.wicketsTaken}',
-            30,
-            bold: true,
-            color: player.wicketsTaken > 0 ? AppTheme.primaryGreen : null,
-          ),
-          _dataCell('${player.widesBowled}', 30),
-          _dataCell(player.economyRate.toStringAsFixed(1), 45),
-        ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      player.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  if (player.id == widget.match.teamACaptainId ||
+                      player.id == widget.match.teamBCaptainId) ...[
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFB800).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFFFFB800).withOpacity(0.5),
+                        ),
+                      ),
+                      child: Text(
+                        'C',
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFFD49A00),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (player.id == widget.match.teamAViceCaptainId ||
+                      player.id == widget.match.teamBViceCaptainId) ...[
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF64B5F6).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFF64B5F6).withOpacity(0.5),
+                        ),
+                      ),
+                      child: Text(
+                        'VC',
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF1976D2),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            _dataCell(player.oversBowledDisplay, 35),
+            _dataCell('${player.runsConceded}', 35, bold: true),
+            _dataCell(
+              '${player.wicketsTaken}',
+              30,
+              bold: true,
+              color: player.wicketsTaken > 0 ? AppTheme.primaryGreen : null,
+            ),
+            _dataCell('${player.widesBowled}', 30),
+            _dataCell(player.economyRate.toStringAsFixed(1), 45),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildResultCard(bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF00C853), Color(0xFF00BFA5)],
+        gradient: LinearGradient(
+          colors:
+              isDark
+                  ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+                  : [const Color(0xFFF8FAFC), const Color(0xFFF1F5F9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
       ),
-      child: Center(
-        child: Text(
-          match.result!,
-          style: GoogleFonts.outfit(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryGreen.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.flag_rounded,
+              color: AppTheme.primaryGreen,
+              size: 24,
+            ),
           ),
-          textAlign: TextAlign.center,
+          const SizedBox(height: 12),
+          Text(
+            widget.match.result!.toUpperCase(),
+            style: GoogleFonts.outfit(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: isDark ? Colors.white : Colors.black87,
+              letterSpacing: 0.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartnershipsList(
+    List<PartnershipModel> partnerships,
+    bool isDark,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B263B) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
         ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF253750) : const Color(0xFFF0F2F5),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+            ),
+            child: Text('PARTNERSHIPS', style: _headerStyle()),
+          ),
+          ...partnerships.map(
+            (p) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color:
+                        isDark
+                            ? const Color(0xFF253750)
+                            : const Color(0xFFF0F2F5),
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${p.wicketNumber}',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryGreen,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.batterBName.toLowerCase().contains('non-striker') ||
+                                  p.batterBName.toLowerCase().contains(
+                                    'non-sticker',
+                                  ) ||
+                                  p.batterBName.isEmpty
+                              ? p.batterAName
+                              : '${p.batterAName} & ${p.batterBName}',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          p.batterBName.toLowerCase().contains('non-striker') ||
+                                  p.batterBName.toLowerCase().contains(
+                                    'non-sticker',
+                                  ) ||
+                                  p.batterBName.isEmpty
+                              ? '${p.batterARuns}(${p.batterABalls})'
+                              : '${p.batterARuns}(${p.batterABalls}) & ${p.batterBRuns}(${p.batterBBalls})',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${p.totalRuns}',
+                        style: GoogleFonts.outfit(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryGreen,
+                        ),
+                      ),
+                      Text(
+                        '${p.totalBalls} balls',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -695,6 +1049,141 @@ class ScorecardScreen extends StatelessWidget {
         textAlign: TextAlign.center,
         style: GoogleFonts.inter(fontSize: 13),
       ),
+    );
+  }
+
+  void _showMOMSelectionSheet(
+    BuildContext context,
+    MatchModel match,
+    bool isDark,
+  ) {
+    final matchController = Get.find<MatchController>();
+    final scoringController = Get.find<ScoringController>();
+
+    // Identify winning team
+    String winningTeamId = '';
+    if (match.result != null) {
+      if (match.result!.toLowerCase().contains(match.teamAName.toLowerCase())) {
+        winningTeamId = 'A';
+      } else if (match.result!.toLowerCase().contains(
+        match.teamBName.toLowerCase(),
+      )) {
+        winningTeamId = 'B';
+      }
+    }
+
+    // Filter players only from winning team (or all if tied)
+    final eligiblePlayers =
+        matchController.players.values.where((p) {
+          if (winningTeamId.isEmpty) return true; // Tie
+          return p.teamId == winningTeamId;
+        }).toList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        final bg = isDark ? const Color(0xFF1E293B) : Colors.white;
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Select Man of the Match',
+                style: GoogleFonts.outfit(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              if (winningTeamId.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Winning Team: ${winningTeamId == 'A' ? match.teamAName : match.teamBName}',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: AppTheme.primaryGreen,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: eligiblePlayers.length,
+                  itemBuilder: (context, index) {
+                    final player = eligiblePlayers[index];
+                    return Card(
+                      color: isDark ? const Color(0xFF334155) : Colors.grey[50],
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.primaryGreen.withOpacity(
+                            0.1,
+                          ),
+                          backgroundImage:
+                              (player.profileImageUrl != null &&
+                                      player.profileImageUrl!.isNotEmpty)
+                                  ? NetworkImage(player.profileImageUrl!)
+                                  : null,
+                          child:
+                              (player.profileImageUrl == null ||
+                                      player.profileImageUrl!.isEmpty)
+                                  ? Text(
+                                    player.name[0],
+                                    style: const TextStyle(
+                                      color: AppTheme.primaryGreen,
+                                    ),
+                                  )
+                                  : null,
+                        ),
+                        title: Text(
+                          player.name,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${player.runsScored} Runs • ${player.wicketsTaken} Wkts',
+                          style: GoogleFonts.inter(fontSize: 12),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          scoringController.setManualManOfMatch(
+                            matchId: match.id,
+                            playerId: player.id,
+                            playerName: player.name,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

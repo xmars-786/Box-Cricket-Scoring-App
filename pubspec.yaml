@@ -34,6 +34,7 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.3
   path_provider: ^2.1.5
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -51,11 +52,18 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/logo.png"
+  web:
+    generate: true
+    image_path: "assets/images/app_icon.png"
+    background_color: "#0D1B2A"
+    theme_color: "#0D1B2A"
+  image_path: "assets/images/app_icon.png"
 
 flutter_native_splash:
-  color: "#667EEA"
-  color_dark: "#0D1B2A"
+  color: "#0D1B2A"
+  background_image: "assets/images/splash_bg.png"
+  image: "assets/images/app_icon.png"
   android_12:
-    color: "#667EEA"
-    color_dark: "#0D1B2A"
+    color: "#0D1B2A"
+    image: "assets/images/app_icon.png"
+

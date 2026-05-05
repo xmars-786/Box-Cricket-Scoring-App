@@ -24,10 +24,15 @@ class AdminDashboardScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor:
             isDark ? AppTheme.primaryDark : const Color(0xFFF8FAFC),
-        body: NestedScrollView(
-          headerSliverBuilder: (context, innerBoxIsScrolled) {
+        body: SafeArea(
+          child: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               SliverAppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
                 pinned: true,
                 floating: true,
                 elevation: innerBoxIsScrolled ? 4 : 0,
@@ -93,8 +98,9 @@ class AdminDashboardScreen extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ─── Pending Users List ────────────────────────────────
   Widget _buildPendingUsersList(bool isDark) {
@@ -604,6 +610,37 @@ class AdminDashboardScreen extends StatelessWidget {
                 value: rulesController.freeHitEnabled.value,
                 activeColor: AppTheme.primaryGreen,
                 onChanged: (val) => rulesController.updateRules(freeHit: val),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1B263B) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color:
+                    isDark ? const Color(0xFF253750) : const Color(0xFFE5E7EB),
+              ),
+            ),
+            child: Obx(
+              () => SwitchListTile(
+                title: Text(
+                  'Tournament Mode',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                  ),
+                ),
+                subtitle: Text(
+                  'Enable/Disable tournament features globally',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+                ),
+                value: rulesController.isTournamentEnabled.value,
+                activeColor: AppTheme.primaryGreen,
+                onChanged: (val) => rulesController.updateRules(tournamentEnabled: val),
               ),
             ),
           ),

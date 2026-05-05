@@ -3,118 +3,64 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Box Cricket Scoring App - Live scoring and stats">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Box Cricket">
+  <meta name="apple-mobile-web-app-title" content="Apna Score">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Box Cricket - Live Scoring</title>
+  <title>Apna Score - Live Scoring</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-startup-image" href="icons/Icon-512.png">
 
   <style>
     body { margin: 0; padding: 0; background-color: #0D1B2A; overflow: hidden; }
-    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: 'Inter', Arial, sans-serif; transition: opacity 0.4s ease; }
-    #loading h1 { color: white; font-size: 28px; margin: 0 0 8px 0; font-weight: 700; }
-    #loading p { color: rgba(255, 255, 255, 0.6); font-size: 14px; margin: 0 0 32px 0; }
-    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255, 255, 255, 0.15); border-top-color: #00C853; border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-  <style id="splash-screen-style">
-    html {
-      height: 100%
-    }
-
-    body {
-      margin: 0;
-      min-height: 100%;
-      background-color: #ffffff;
-          background-size: 100% 100%;
-    }
-
-    .center {
-      margin: 0;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      -ms-transform: translate(-50%, -50%);
-      transform: translate(-50%, -50%);
-    }
-
-    .contain {
-      display:block;
-      width:100%; height:100%;
-      object-fit: contain;
-    }
-
-    .stretch {
-      display:block;
-      width:100%; height:100%;
-    }
-
-    .cover {
-      display:block;
-      width:100%; height:100%;
-      object-fit: cover;
-    }
-
-    .bottom {
-      position: absolute;
-      bottom: 0;
-      left: 50%;
-      -ms-transform: translate(-50%, 0);
-      transform: translate(-50%, 0);
-    }
-
-    .bottomLeft {
-      position: absolute;
-      bottom: 0;
+    #splash {
+      position: fixed;
+      top: 0;
       left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: #0D1B2A;
+      z-index: 999;
+      transition: opacity 0.5s ease;
     }
-
-    .bottomRight {
-      position: absolute;
-      bottom: 0;
-      right: 0;
+    #splash img {
+      width: 120px;
+      height: 120px;
+      border-radius: 28px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+      animation: pulse 2s infinite ease-in-out;
     }
-
-    @media (prefers-color-scheme: dark) {
-      body {
-        background-color: #0D1B2A;
-          }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
     }
   </style>
-  <script id="splash-screen-script">
-    function removeSplashFromWeb() {
-      document.getElementById("splash")?.remove();
-      document.getElementById("splash-branding")?.remove();
-      document.body.style.background = "transparent";
-    }
-  </script>
 </head>
 <body>
-  <picture id="splash">
-      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
-      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
-      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
-  </picture>
-  <div id="loading">
-    <h1>🏏 Box Cricket</h1>
-    <p>Loading app...</p>
-    <div class="spinner"></div>
+  <div id="splash">
+    <img src="icons/Icon-192.png" alt="Apna Score Logo">
   </div>
 
   <script>
-    // Hide the loading overlay once Flutter has rendered
+    // Hide the splash screen once Flutter has rendered its first frame
     window.addEventListener('flutter-first-frame', function() {
-      var loading = document.getElementById('loading');
-      if (loading) {
-        loading.style.opacity = '0';
-        setTimeout(function() { loading.remove(); }, 400);
+      var splash = document.getElementById('splash');
+      if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(function() { splash.remove(); }, 500);
       }
     });
   </script>
 
+  <script>
+    window.flutterWebRenderer = "html";
+  </script>
   <script src="flutter_bootstrap.js" async=""></script>
-
-
 </body></html>

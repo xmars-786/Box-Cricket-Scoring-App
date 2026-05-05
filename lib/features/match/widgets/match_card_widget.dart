@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/controllers/auth_controller.dart';
 import '../../../core/controllers/match_controller.dart';
+import '../../../core/controllers/tournament_controller.dart';
 import '../../../core/models/match_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../screens/match_detail_screen.dart';
@@ -18,6 +19,7 @@ class MatchCardWidget extends StatelessWidget {
   final bool isDark;
   final bool isAdmin;
   final bool isScorer;
+  final bool showTournamentName;
   final VoidCallback? onDelete;
 
   const MatchCardWidget({
@@ -26,6 +28,7 @@ class MatchCardWidget extends StatelessWidget {
     required this.isDark,
     this.isAdmin = false,
     this.isScorer = false,
+    this.showTournamentName = true,
     this.onDelete,
   });
 
@@ -62,18 +65,24 @@ class MatchCardWidget extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      match.title,
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
+                      match.matchNumber != null
+                          ? (showTournamentName
+                              ? 'MATCH ${match.matchNumber} • ${match.tournamentName ?? 'Tournament'}'
+                              : 'MATCH ${match.matchNumber}')
+                          : match.title,
+                      style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       dateStr,
                       style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.grey,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white38 : Colors.black38,
                       ),
                     ),
                   ],
@@ -83,13 +92,16 @@ class MatchCardWidget extends StatelessWidget {
               if (isAdmin) _buildOptionsMenu(),
             ],
           ),
-          const Divider(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Divider(height: 1, thickness: 1, color: Colors.white12),
+          ),
           _buildScoreSummary(),
           if (match.result != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 20),
             _buildResultBanner(),
           ],
-          const Divider(height: 24),
+          const SizedBox(height: 20),
           _buildMOTMRow(),
           Obx(() {
             final latestMatch =
@@ -98,10 +110,32 @@ class MatchCardWidget extends StatelessWidget {
                     : null;
             final isLatest = latestMatch?.id == match.id;
 
-            if (isAdmin && isLatest && matchController.liveMatches.isEmpty) {
+            final tournamentController = Get.find<TournamentController>();
+            bool isBlockedByTournament = false;
+            if (match.tournamentId != null) {
+              final t = tournamentController.tournaments.firstWhereOrNull(
+                (t) => t.id == match.tournamentId,
+              );
+              if (t != null) {
+                final allowedStatuses = ['upcoming', 'ongoing', 'live'];
+                final statusOk = allowedStatuses.contains(
+                  t.status.toLowerCase(),
+                );
+                final hasLiveInTournament = tournamentController
+                    .tournamentMatches
+                    .any((m) => m.isLive);
+                isBlockedByTournament = !statusOk || hasLiveInTournament;
+              }
+            }
+
+            if (isAdmin &&
+                isLatest &&
+                matchController.liveMatches.isEmpty &&
+                match.tournamentId == null &&
+                !isBlockedByTournament) {
               return Column(
                 children: [
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
                   _buildRematchButton(context),
                 ],
               );
@@ -182,7 +216,11 @@ class MatchCardWidget extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            match.title,
+                            match.matchNumber != null
+                                ? (showTournamentName
+                                    ? 'MATCH ${match.matchNumber} • ${match.tournamentName ?? 'Tournament'}'
+                                    : 'MATCH ${match.matchNumber}')
+                                : match.title,
                             style: GoogleFonts.outfit(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
@@ -547,7 +585,11 @@ class MatchCardWidget extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      match.title,
+                      match.matchNumber != null
+                          ? (showTournamentName
+                              ? 'MATCH ${match.matchNumber} • ${match.tournamentName ?? 'Tournament'}'
+                              : 'MATCH ${match.matchNumber}')
+                          : match.title,
                       style: GoogleFonts.inter(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
@@ -720,51 +762,62 @@ class MatchCardWidget extends StatelessWidget {
   Widget _buildResultBanner() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: AppTheme.primaryGreen.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryGreen.withOpacity(0.15),
+            AppTheme.primaryGreen.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.2)),
       ),
       child: Text(
         match.result!,
         textAlign: TextAlign.center,
         style: GoogleFonts.inter(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
           color: AppTheme.primaryGreen,
+          letterSpacing: 0.5,
         ),
       ),
     );
   }
 
   Widget _buildMOTMRow() {
-    return Row(
-      children: [
-        if (match.manOfMatchName != null)
-          Expanded(
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.emoji_events_rounded,
-                  color: Color(0xFFFFAB00),
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'MoM: ${match.manOfMatchName}',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFFFFAB00),
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+    if (match.manOfMatchName == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFAB00).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFAB00).withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.emoji_events_rounded,
+            color: Color(0xFFFFAB00),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              'Man of the Match: ${match.manOfMatchName}',
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFFFFAB00),
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -840,32 +893,36 @@ class MatchCardWidget extends StatelessWidget {
 
   Widget _buildStatusBadge(String status) {
     Color color;
-    String text;
-    switch (status) {
-      case 'live':
-        color = AppTheme.wicketRed;
-        text = 'LIVE';
-        break;
+    String label = status.toUpperCase();
+
+    switch (status.toLowerCase()) {
       case 'completed':
         color = AppTheme.primaryGreen;
-        text = 'DONE';
+        break;
+      case 'live':
+        color = Colors.blue;
+        break;
+      case 'upcoming':
+        color = Colors.grey;
         break;
       default:
-        color = AppTheme.vibrantOrange;
-        text = 'UPCOMING';
+        color = Colors.grey;
     }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Text(
-        text,
+        label,
         style: GoogleFonts.inter(
           fontSize: 10,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w900,
           color: color,
+          letterSpacing: 0.5,
         ),
       ),
     );

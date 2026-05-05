@@ -20,6 +20,7 @@ class BallLog {
   final bool isBye;
   final bool isLegBye;
   final int extraRuns;
+  final String? fielderId;
   final bool isFreeHit;
   final DateTime timestamp;
   final String scoredBy; // Scorer user ID
@@ -38,6 +39,7 @@ class BallLog {
     this.isWicket = false,
     this.dismissalType,
     this.dismissedPlayerId,
+    this.fielderId,
     this.isFour = false,
     this.isSix = false,
     this.isBye = false,
@@ -64,6 +66,7 @@ class BallLog {
       isWicket: data['is_wicket'] ?? false,
       dismissalType: data['dismissal_type'],
       dismissedPlayerId: data['dismissed_player_id'],
+      fielderId: data['fielder_id'],
       isFour: data['is_four'] ?? false,
       isSix: data['is_six'] ?? false,
       isBye: data['is_bye'] ?? false,
@@ -89,6 +92,7 @@ class BallLog {
       'is_wicket': isWicket,
       'dismissal_type': dismissalType,
       'dismissed_player_id': dismissedPlayerId,
+      'fielder_id': fielderId,
       'is_four': isFour,
       'is_six': isSix,
       'is_bye': isBye,

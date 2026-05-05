@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:ui';
 
 import '../../../core/controllers/auth_controller.dart';
@@ -236,6 +237,27 @@ class _LoginScreenState extends State<LoginScreen> {
                                             ),
                                           ),
                                         ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                
+                                // ── Privacy Policy Link ──
+                                Center(
+                                  child: TextButton(
+                                    onPressed: () async {
+                                      final url = Uri.parse('https://orange-waterfall-a462.mammu2425.workers.dev/privacy_policy.html');
+                                      if (await canLaunchUrl(url)) {
+                                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                                      }
+                                    },
+                                    child: Text(
+                                      'Privacy Policy',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white.withOpacity(0.6),
+                                        decoration: TextDecoration.underline,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ),

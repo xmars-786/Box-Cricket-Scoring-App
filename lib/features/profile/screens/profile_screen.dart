@@ -4,6 +4,7 @@ import 'package:x_cricket/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// User profile screen with settings and account management using GetX.
 class ProfileScreen extends StatelessWidget {
@@ -152,6 +153,23 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                 ]),
+                const SizedBox(height: 16),
+
+                // Information
+                _buildSection(isDark, 'Information', [
+                  _buildNavItem(
+                    isDark,
+                    Icons.privacy_tip_outlined,
+                    'Privacy Policy',
+                    () async {
+                      final url = Uri.parse('https://orange-waterfall-a462.mammu2425.workers.dev/privacy_policy.html');
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                  ),
+                ]),
+                const SizedBox(height: 32),
 
                 // Sign out
                 SizedBox(
@@ -177,7 +195,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
                 Text(
-                  'DEVELOPED BY XMARS v1.0.0',
+                  'DEVELOPED BY Mammu v1.0.0',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,

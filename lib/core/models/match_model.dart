@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/app_constants.dart';
+import 'partnership_model.dart';
 
 /// Represents a cricket match with all metadata.
 class MatchModel {
@@ -7,6 +9,7 @@ class MatchModel {
   final String createdBy; // Admin user ID
   final String status; // 'upcoming', 'live', 'completed'
   final int totalOvers;
+  final int ballsPerOver;
   final List<String> teamAPlayers;
   final List<String> teamBPlayers;
   final String teamAName;
@@ -33,20 +36,36 @@ class MatchModel {
   final bool lastPlayerCanPlay;
   final int? maxBattingOvers;
   final int? maxBowlingOvers;
+  final String? tournamentId;
+  final String? tournamentName;
+  final String? round;
+  final String? teamAId;
+  final String? teamBId;
+  final String? winnerId;
+  final String? manOfMatch;
+  final String? manOfMatchName;
   final DateTime createdAt;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final bool isInningsBreak;
-  final String? manOfMatch; // player ID
-  final String? manOfMatchName; // player name for lists
-
-
+  final int? matchNumber; // For tournament scheduling order
+  final bool isKnockoutPlaceholder; // If true, teams are not yet decided
+  final String? nextMatchId; // ID of the match the winner advances to
+  final PartnershipModel? activePartnership;
+  final List<PartnershipModel> teamAPartnerships;
+  final List<PartnershipModel> teamBPartnerships;
+  final List<String> teamABattingOrder;
+  final List<String> teamBBattingOrder;
+  final List<String> teamABowlingOrder;
+  final List<String> teamBBowlingOrder;
+  final Map<String, dynamic>? manOfTheMatchMap;
   MatchModel({
     required this.id,
     required this.title,
     required this.createdBy,
     this.status = 'upcoming',
     required this.totalOvers,
+    this.ballsPerOver = 6,
     required this.teamAPlayers,
     required this.teamBPlayers,
     this.teamAName = 'Team A',
@@ -73,15 +92,38 @@ class MatchModel {
     this.lastPlayerCanPlay = false,
     this.maxBattingOvers,
     this.maxBowlingOvers,
+    this.tournamentId,
+    this.tournamentName,
+    this.round,
+    this.teamAId,
+    this.teamBId,
+    this.winnerId,
+    this.manOfMatch,
+    this.manOfMatchName,
     DateTime? createdAt,
     this.startedAt,
     this.completedAt,
     this.isInningsBreak = false,
-    this.manOfMatch,
-    this.manOfMatchName,
-  })  : teamAScore = teamAScore ?? MatchScore(),
-        teamBScore = teamBScore ?? MatchScore(),
-        createdAt = createdAt ?? DateTime.now();
+    this.matchNumber,
+    this.isKnockoutPlaceholder = false,
+    this.nextMatchId,
+    this.activePartnership,
+    List<PartnershipModel>? teamAPartnerships,
+    List<PartnershipModel>? teamBPartnerships,
+    List<String>? teamABattingOrder,
+    List<String>? teamBBattingOrder,
+    List<String>? teamABowlingOrder,
+    List<String>? teamBBowlingOrder,
+    this.manOfTheMatchMap,
+  }) : teamAScore = teamAScore ?? MatchScore(),
+       teamBScore = teamBScore ?? MatchScore(),
+       teamAPartnerships = teamAPartnerships ?? [],
+       teamBPartnerships = teamBPartnerships ?? [],
+       teamABattingOrder = teamABattingOrder ?? [],
+       teamBBattingOrder = teamBBattingOrder ?? [],
+       teamABowlingOrder = teamABowlingOrder ?? [],
+       teamBBowlingOrder = teamBBowlingOrder ?? [],
+       createdAt = createdAt ?? DateTime.now();
 
   factory MatchModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -90,7 +132,8 @@ class MatchModel {
       title: data['title'] ?? '',
       createdBy: data['created_by'] ?? '',
       status: data['status'] ?? 'upcoming',
-      totalOvers: data['total_overs'] ?? 6,
+      totalOvers: (data['total_overs'] as num?)?.toInt() ?? 0,
+      ballsPerOver: (data['balls_per_over'] as num?)?.toInt() ?? 6,
       teamAPlayers: List<String>.from(data['team_a_players'] ?? []),
       teamBPlayers: List<String>.from(data['team_b_players'] ?? []),
       teamAName: data['team_a_name'] ?? 'Team A',
@@ -117,12 +160,38 @@ class MatchModel {
       lastPlayerCanPlay: data['last_player_can_play'] ?? false,
       maxBattingOvers: data['max_batting_overs'],
       maxBowlingOvers: data['max_bowling_overs'],
+      tournamentId: data['tournament_id'],
+      tournamentName: data['tournament_name'],
+      round: data['round'],
+      teamAId: data['team_a_id'],
+      teamBId: data['team_b_id'],
+      winnerId: data['winner_id'],
+      manOfMatch: data['man_of_match'],
+      manOfMatchName: data['man_of_match_name'],
       createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
       startedAt: (data['started_at'] as Timestamp?)?.toDate(),
       completedAt: (data['completed_at'] as Timestamp?)?.toDate(),
       isInningsBreak: data['is_innings_break'] ?? false,
-      manOfMatch: data['man_of_match'],
-      manOfMatchName: data['man_of_match_name'],
+      matchNumber: data['match_number'],
+      isKnockoutPlaceholder: data['is_knockout_placeholder'] ?? false,
+      nextMatchId: data['next_match_id'],
+      activePartnership:
+          data['active_partnership'] != null
+              ? PartnershipModel.fromMap(data['active_partnership'])
+              : null,
+      teamAPartnerships:
+          (data['team_a_partnerships'] as List? ?? [])
+              .map((e) => PartnershipModel.fromMap(e))
+              .toList(),
+      teamBPartnerships:
+          (data['team_b_partnerships'] as List? ?? [])
+              .map((e) => PartnershipModel.fromMap(e))
+              .toList(),
+      teamABattingOrder: List<String>.from(data['team_a_batting_order'] ?? []),
+      teamBBattingOrder: List<String>.from(data['team_b_batting_order'] ?? []),
+      teamABowlingOrder: List<String>.from(data['team_a_bowling_order'] ?? []),
+      teamBBowlingOrder: List<String>.from(data['team_b_bowling_order'] ?? []),
+      manOfTheMatchMap: data['man_of_the_match_map'],
     );
   }
 
@@ -132,6 +201,7 @@ class MatchModel {
       'created_by': createdBy,
       'status': status,
       'total_overs': totalOvers,
+      'balls_per_over': ballsPerOver,
       'team_a_players': teamAPlayers,
       'team_b_players': teamBPlayers,
       'team_a_name': teamAName,
@@ -158,12 +228,30 @@ class MatchModel {
       'last_player_can_play': lastPlayerCanPlay,
       'max_batting_overs': maxBattingOvers,
       'max_bowling_overs': maxBowlingOvers,
-      'created_at': Timestamp.fromDate(createdAt),
-      'started_at': startedAt != null ? Timestamp.fromDate(startedAt!) : null,
-      'completed_at': completedAt != null ? Timestamp.fromDate(completedAt!) : null,
-      'is_innings_break': isInningsBreak,
+      'tournament_id': tournamentId,
+      'tournament_name': tournamentName,
+      'round': round,
+      'team_a_id': teamAId,
+      'team_b_id': teamBId,
+      'winner_id': winnerId,
       'man_of_match': manOfMatch,
       'man_of_match_name': manOfMatchName,
+      'created_at': Timestamp.fromDate(createdAt),
+      'started_at': startedAt != null ? Timestamp.fromDate(startedAt!) : null,
+      'completed_at':
+          completedAt != null ? Timestamp.fromDate(completedAt!) : null,
+      'is_innings_break': isInningsBreak,
+      'match_number': matchNumber,
+      'is_knockout_placeholder': isKnockoutPlaceholder,
+      'next_match_id': nextMatchId,
+      'active_partnership': activePartnership?.toMap(),
+      'team_a_partnerships': teamAPartnerships.map((e) => e.toMap()).toList(),
+      'team_b_partnerships': teamBPartnerships.map((e) => e.toMap()).toList(),
+      'team_a_batting_order': teamABattingOrder,
+      'team_b_batting_order': teamBBattingOrder,
+      'team_a_bowling_order': teamABowlingOrder,
+      'team_b_bowling_order': teamBBowlingOrder,
+      'man_of_the_match_map': manOfTheMatchMap,
     };
   }
 
@@ -171,6 +259,7 @@ class MatchModel {
     String? title,
     String? status,
     int? totalOvers,
+    int? ballsPerOver,
     List<String>? teamAPlayers,
     List<String>? teamBPlayers,
     String? teamAName,
@@ -197,12 +286,26 @@ class MatchModel {
     bool? lastPlayerCanPlay,
     int? maxBattingOvers,
     int? maxBowlingOvers,
+    String? tournamentId,
+    String? tournamentName,
+    String? round,
+    String? teamAId,
+    String? teamBId,
+    String? winnerId,
+    String? manOfMatch,
+    String? manOfMatchName,
     DateTime? startedAt,
     DateTime? completedAt,
     bool? isInningsBreak,
-    String? manOfMatch,
-    String? manOfMatchName,
-
+    bool? isKnockoutPlaceholder,
+    String? nextMatchId,
+    List<PartnershipModel>? teamAPartnerships,
+    List<PartnershipModel>? teamBPartnerships,
+    List<String>? teamABattingOrder,
+    List<String>? teamBBattingOrder,
+    List<String>? teamABowlingOrder,
+    List<String>? teamBBowlingOrder,
+    Map<String, dynamic>? manOfTheMatchMap,
   }) {
     return MatchModel(
       id: id,
@@ -210,6 +313,7 @@ class MatchModel {
       createdBy: createdBy,
       status: status ?? this.status,
       totalOvers: totalOvers ?? this.totalOvers,
+      ballsPerOver: ballsPerOver ?? this.ballsPerOver,
       teamAPlayers: teamAPlayers ?? this.teamAPlayers,
       teamBPlayers: teamBPlayers ?? this.teamBPlayers,
       teamAName: teamAName ?? this.teamAName,
@@ -236,31 +340,46 @@ class MatchModel {
       lastPlayerCanPlay: lastPlayerCanPlay ?? this.lastPlayerCanPlay,
       maxBattingOvers: maxBattingOvers ?? this.maxBattingOvers,
       maxBowlingOvers: maxBowlingOvers ?? this.maxBowlingOvers,
+      tournamentId: tournamentId ?? this.tournamentId,
+      tournamentName: tournamentName ?? this.tournamentName,
+      round: round ?? this.round,
+      teamAId: teamAId ?? this.teamAId,
+      teamBId: teamBId ?? this.teamBId,
+      winnerId: winnerId ?? this.winnerId,
+      manOfMatch: manOfMatch ?? this.manOfMatch,
+      manOfMatchName: manOfMatchName ?? this.manOfMatchName,
       createdAt: createdAt,
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,
       isInningsBreak: isInningsBreak ?? this.isInningsBreak,
-      manOfMatch: manOfMatch ?? this.manOfMatch,
-      manOfMatchName: manOfMatchName ?? this.manOfMatchName,
+      matchNumber: matchNumber ?? this.matchNumber,
+      isKnockoutPlaceholder:
+          isKnockoutPlaceholder ?? this.isKnockoutPlaceholder,
+      nextMatchId: nextMatchId ?? this.nextMatchId,
+      activePartnership: activePartnership ?? this.activePartnership,
+      teamAPartnerships: teamAPartnerships ?? this.teamAPartnerships,
+      teamBPartnerships: teamBPartnerships ?? this.teamBPartnerships,
+      teamABattingOrder: teamABattingOrder ?? this.teamABattingOrder,
+      teamBBattingOrder: teamBBattingOrder ?? this.teamBBattingOrder,
+      teamABowlingOrder: teamABowlingOrder ?? this.teamABowlingOrder,
+      teamBBowlingOrder: teamBBowlingOrder ?? this.teamBBowlingOrder,
+      manOfTheMatchMap: manOfTheMatchMap ?? this.manOfTheMatchMap,
     );
   }
 
   /// Get current innings score
-  MatchScore get currentScore {
-    return currentInnings == 'A' ? teamAScore : teamBScore;
-  }
+  MatchScore get currentScore =>
+      currentInnings == 'A' ? teamAScore : teamBScore;
 
   /// Get batting team name
-  String get battingTeamName =>
-      currentInnings == 'A' ? teamAName : teamBName;
+  String get battingTeamName => currentInnings == 'A' ? teamAName : teamBName;
 
   /// Get bowling team name
-  String get bowlingTeamName =>
-      currentInnings == 'A' ? teamBName : teamAName;
+  String get bowlingTeamName => currentInnings == 'A' ? teamBName : teamAName;
 
-  bool get isLive => status == 'live';
-  bool get isCompleted => status == 'completed';
-  bool get isUpcoming => status == 'upcoming';
+  bool get isLive => status == AppConstants.matchLive;
+  bool get isCompleted => status == AppConstants.matchCompleted;
+  bool get isUpcoming => status == AppConstants.matchUpcoming;
 
   /// The team that batted first in the match
   String get initialBattingTeam =>
@@ -278,6 +397,62 @@ class MatchModel {
     if (!isSecondInnings) return 0;
     final firstInningsScore = currentInnings == 'A' ? teamBScore : teamAScore;
     return firstInningsScore.runs + 1;
+  }
+
+  /// Recalculates the match result and winner ID based on current scores and batting order.
+  /// Useful for data migration and ensuring historical accuracy.
+  Map<String, String?> recalculateResult() {
+    if (status != AppConstants.matchCompleted) {
+      return {'result': result, 'winner_id': winnerId};
+    }
+
+    final initialTeam = initialBattingTeam; // Team 1 (Defending)
+    final chasingTeamId = initialTeam == 'A' ? 'B' : 'A'; // Team 2 (Chasing)
+
+    final score1 = initialTeam == 'A' ? teamAScore.runs : teamBScore.runs;
+    final score2 = initialTeam == 'A' ? teamBScore.runs : teamAScore.runs;
+
+    final name1 = initialTeam == 'A' ? teamAName : teamBName;
+    final name2 = initialTeam == 'A' ? teamBName : teamAName;
+
+    final id1 = initialTeam == 'A' ? teamAId : teamBId;
+    final id2 = initialTeam == 'A' ? teamBId : teamAId;
+
+    String? resultText;
+    String? finalWinnerId;
+    String? winningTeam; // 'A' or 'B'
+
+    if (score2 > score1) {
+      // Chasing team won
+      final wicketsLost = initialTeam == 'A' ? teamBScore.wickets : teamAScore.wickets;
+      final chasingTeamSize =
+          initialTeam == 'A' ? teamBPlayers.length : teamAPlayers.length;
+
+      int remainingWickets = (chasingTeamSize - 1) - wicketsLost;
+      if (lastPlayerCanPlay) {
+        remainingWickets = chasingTeamSize - wicketsLost;
+      }
+      if (remainingWickets < 0) remainingWickets = 0;
+
+      resultText = '$name2 won by $remainingWickets wickets';
+      finalWinnerId = id2;
+      winningTeam = chasingTeamId;
+    } else if (score1 > score2) {
+      // Defending team won
+      resultText = '$name1 won by ${score1 - score2} runs';
+      finalWinnerId = id1;
+      winningTeam = initialTeam;
+    } else {
+      resultText = 'Match Tied';
+      finalWinnerId = null;
+      winningTeam = null;
+    }
+
+    return {
+      'result': resultText,
+      'winner_id': finalWinnerId,
+      'winning_team': winningTeam,
+    };
   }
 }
 
@@ -307,15 +482,15 @@ class MatchScore {
 
   factory MatchScore.fromMap(Map<String, dynamic> map) {
     return MatchScore(
-      runs: map['runs'] ?? 0,
-      wickets: map['wickets'] ?? 0,
-      overs: map['overs'] ?? 0,
-      balls: map['balls'] ?? 0,
-      extras: map['extras'] ?? 0,
-      wides: map['wides'] ?? 0,
-      noBalls: map['no_balls'] ?? 0,
-      byes: map['byes'] ?? 0,
-      legByes: map['leg_byes'] ?? 0,
+      runs: (map['runs'] as num?)?.toInt() ?? 0,
+      wickets: (map['wickets'] as num?)?.toInt() ?? 0,
+      overs: (map['overs'] as num?)?.toInt() ?? 0,
+      balls: (map['balls'] as num?)?.toInt() ?? 0,
+      extras: (map['extras'] as num?)?.toInt() ?? 0,
+      wides: (map['wides'] as num?)?.toInt() ?? 0,
+      noBalls: (map['no_balls'] as num?)?.toInt() ?? 0,
+      byes: (map['byes'] as num?)?.toInt() ?? 0,
+      legByes: (map['leg_byes'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -356,6 +531,9 @@ class MatchScore {
       legByes: legByes ?? this.legByes,
     );
   }
+
+  /// Total balls bowled
+  int get totalBalls => (overs * 6) + balls;
 
   /// Formatted overs display (e.g., "3.4")
   String get oversDisplay => '$overs.$balls';

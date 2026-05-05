@@ -1,7 +1,8 @@
-import 'package:x_cricket/core/routes/app_routes.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
+import 'package:x_cricket/core/routes/app_routes.dart';
 
 import '../../../core/models/match_model.dart';
 import '../../../core/models/player_model.dart';
@@ -14,7 +15,12 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/controllers/rules_controller.dart';
 import '../../../core/utils/ui_utils.dart';
 import '../../match/utils/match_dialogs.dart';
+import '../../match/widgets/motm_award_card.dart';
+import '../../match/widgets/partnership_card.dart';
+import '../../../core/models/partnership_model.dart';
+import '../../../core/controllers/tournament_controller.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/last_ball_popup.dart';
 
 /// Scoring screen for scorers to record ball-by-ball updates.
 /// Features run buttons, wicket, extras, undo, and auto strike change.
@@ -32,6 +38,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
   final ScoringController scoringController = Get.find<ScoringController>();
   final AuthController authController = Get.find<AuthController>();
   final RulesController rulesController = Get.find<RulesController>();
+  final TournamentController tournamentController =
+      Get.find<TournamentController>();
 
   bool _isProcessingAction = false;
 
@@ -46,6 +54,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     String? dismissalType,
     String? dismissedPlayerId,
     String? fielderId,
+    String? newIncomingBatsmanId,
   }) async {
     if (_isProcessingAction) return;
     setState(() => _isProcessingAction = true);
@@ -60,12 +69,25 @@ class _ScoringScreenState extends State<ScoringScreen> {
       dismissalType: dismissalType,
       dismissedPlayerId: dismissedPlayerId,
       fielderId: fielderId,
+      newIncomingBatsmanId: newIncomingBatsmanId,
     );
+
+    // Explicitly trigger selection checks after a small delay to ensure Firestore sync
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (mounted) {
+        final freshMatch = matchController.selectedMatch;
+        if (freshMatch != null) {
+          _autoOpenSelectionIfNeeded(freshMatch);
+        }
+      }
+    });
 
     if (mounted) {
       setState(() => _isProcessingAction = false);
     }
   }
+
+  Worker? _matchWorker;
 
   @override
   void initState() {
@@ -73,7 +95,69 @@ class _ScoringScreenState extends State<ScoringScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       matchController.listenToMatch(widget.matchId);
       scoringController.initForMatch(widget.matchId);
+
+      // Auto-open player selection safety net with debounce to handle rapid Firestore updates
+      _matchWorker = debounce(matchController.selectedMatchRx, (
+        MatchModel? match,
+      ) {
+        if (!mounted) return;
+        if (match == null) return;
+
+        // Auto-close selection sheets if match completes or innings break
+        if ((match.isCompleted || match.isInningsBreak) &&
+            _isSelectionSheetOpen) {
+          if (Get.isBottomSheetOpen == true) {
+            Get.back();
+          }
+          _isSelectionSheetOpen = false;
+          return;
+        }
+
+        if (!match.isLive || match.isInningsBreak || _isSelectionSheetOpen) {
+          return;
+        }
+
+        // Check if current user is scorer
+        final isScorer =
+            match.scorerIds.contains(authController.userId) ||
+            (authController.currentUser?.isAdmin ?? false);
+        if (!isScorer) return;
+
+        // Only trigger if IDs are missing
+        if (match.currentBatsmanId == null ||
+            match.currentBowlerId == null ||
+            (match.currentNonStrikerId == null && !match.customRulesEnabled)) {
+          _autoOpenSelectionIfNeeded(match);
+        }
+      }, time: const Duration(milliseconds: 300));
+
+      // Last Ball Alert Worker
+      _lastBallWorker = ever(scoringController.lastBallShown, (bool shown) {
+        if (shown && mounted) {
+          _showLastBallAlert();
+        }
+      });
     });
+  }
+
+  Worker? _lastBallWorker;
+
+  void _showLastBallAlert() {
+    HapticFeedback.heavyImpact();
+    Get.dialog(const Center(child: LastBallPopup()), barrierDismissible: false);
+
+    Future.delayed(const Duration(seconds: 3), () {
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _matchWorker?.dispose();
+    _lastBallWorker?.dispose();
+    super.dispose();
   }
 
   Widget _buildSummaryItem(
@@ -113,47 +197,196 @@ class _ScoringScreenState extends State<ScoringScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.canPop(context)) {
-              Get.back();
-            } else {
-              Get.offAllNamed(AppRoutes.home);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _showExitConfirmation(context, isDark);
+        if (shouldPop && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            onPressed: () async {
+              final shouldPop = await _showExitConfirmation(context, isDark);
+              if (shouldPop && mounted) {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  Get.offAllNamed(AppRoutes.home);
+                }
+              }
+            },
+          ),
+          title: Text(
+            'Live Scoring',
+            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+          ),
+          // actions: [
+          //   // Undo button
+          //   Obx(
+          //     () => IconButton(
+          //       icon: const Icon(Icons.undo),
+          //       tooltip: 'Undo Last Ball',
+          //       onPressed:
+          //           scoringController.ballLogs.isEmpty
+          //               ? null
+          //               : () => _undoLastBall(matchController, scoringController),
+          //     ),
+          //   ),
+          // ],
+        ),
+        body: SafeArea(
+          child: Obx(() {
+            final match = matchController.selectedMatch;
+            if (match == null) {
+              return const Center(child: CircularProgressIndicator());
             }
-          },
+
+            // Check if match is completed
+            if (match.isCompleted) {
+              return _buildMatchCompletedView(match, isDark);
+            }
+
+            // Check if match needs to start
+            if (match.isUpcoming) {
+              return _buildStartMatchView(match, matchController, isDark);
+            }
+
+            return _buildScoringView(
+              match,
+              matchController.players,
+              scoringController,
+              isDark,
+            );
+          }),
         ),
-        title: Text(
-          'Live Scoring',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: SafeArea(
-        child: Obx(() {
-          final match = matchController.selectedMatch;
-          if (match == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (match.isCompleted) {
-            return _buildMatchCompletedView(match, isDark);
-          }
-
-          if (match.isUpcoming) {
-            return _buildStartMatchView(match, matchController, isDark);
-          }
-
-          return _buildScoringView(
-            match,
-            matchController.players,
-            scoringController,
-            isDark,
-          );
-        }),
       ),
     );
+  }
+
+  Future<bool> _showExitConfirmation(BuildContext context, bool isDark) async {
+    return await showDialog<bool>(
+          context: context,
+          builder:
+              (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                backgroundColor:
+                    isDark ? const Color(0xFF1E293B) : Colors.white,
+                title: Text(
+                  'Exit Scoring?',
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+                content: Text(
+                  'Are you sure you want to leave the live scoring screen? The match progress will be saved.',
+                  style: GoogleFonts.inter(
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(
+                      'STAY',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.wicketRed,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'EXIT',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+        ) ??
+        false;
+  }
+
+  bool _isSelectionSheetOpen = false;
+
+  Future<void> _autoOpenSelectionIfNeeded(MatchModel match) async {
+    // 100% Reliable Lock System
+    if (_isSelectionSheetOpen || match.isCompleted || match.isInningsBreak)
+      return;
+
+    // Settling delay: wait for database snapshots to stabilize
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Re-verify state after delay using the latest available data
+    final latestMatch = matchController.selectedMatch;
+    if (latestMatch == null ||
+        latestMatch.id != match.id ||
+        latestMatch.isCompleted ||
+        latestMatch.isInningsBreak ||
+        _isSelectionSheetOpen) {
+      return;
+    }
+
+    // Immediate lock to prevent race conditions during async player fetch
+    _isSelectionSheetOpen = true;
+
+    final currentMatch = latestMatch;
+
+    if (matchController.players.isEmpty) {
+      await matchController.fetchPlayers(match.id);
+    }
+
+    final players = matchController.players;
+    final battingTeamId = currentMatch.currentInnings;
+    final teamSize =
+        battingTeamId == 'A'
+            ? currentMatch.teamAPlayers.length
+            : currentMatch.teamBPlayers.length;
+
+    // Smart Detection Logic
+    final isLastPlayerStanding =
+        currentMatch.lastPlayerCanPlay &&
+        teamSize > 0 &&
+        currentMatch.currentScore.wickets >= teamSize - 1;
+
+    final needsStriker = currentMatch.currentBatsmanId == null;
+    final needsNonStriker =
+        currentMatch.currentNonStrikerId == null &&
+        !currentMatch.customRulesEnabled &&
+        !isLastPlayerStanding &&
+        currentMatch.currentScore.wickets < teamSize - 1;
+    final needsBowler = currentMatch.currentBowlerId == null;
+
+    if (needsStriker || needsNonStriker || needsBowler) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+
+      // Central Event Triggers
+      if (needsStriker) {
+        _openStrikerSelection(currentMatch, players, isDark);
+      } else if (needsNonStriker) {
+        _openNonStrikerSelection(currentMatch, players, isDark);
+      } else if (needsBowler) {
+        _openBowlerSelection(currentMatch, players, isDark);
+      }
+    } else {
+      // Release lock if no selection was actually needed
+      _isSelectionSheetOpen = false;
+    }
   }
 
   // --- Player Selection Helpers ---
@@ -219,6 +452,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
           return isCorrectTeam && !p.isOut && p.canBatWithLimit(maxBatBalls);
         }).toList();
 
+    // Check Last Man Stands
     if (!match.customRulesEnabled && battingTeamPlayers.length == 1) return;
 
     _showSearchablePlayerPicker(
@@ -266,6 +500,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
           return isBowlingTeam && p.canBowl(maxBowlOvers);
         }).toList();
 
+    // Find last bowler to prevent consecutive overs
     final lastBallIndex = scoringController.ballLogs.lastIndexWhere(
       (b) => b.innings == match.currentInnings,
     );
@@ -288,7 +523,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
       subtitleBuilder:
           (p) => Text(
             p.id == lastBowlerId
-                ? 'Player can\'t bowl back-to-back overs.'
+                ? 'Cannot bowl consecutive overs'
                 : 'Overs: ${p.oversBowledDisplay} (${p.bowlingFigures})',
             style: TextStyle(
               fontSize: 12,
@@ -344,7 +579,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => matchProv.startMatch(widget.matchId),
+                onPressed: () async {
+                  UIUtils.showLoading('Starting match...');
+                  await matchProv.fetchPlayers(widget.matchId);
+                  await matchProv.startMatch(widget.matchId);
+                  UIUtils.hideLoading();
+                },
                 icon: const Icon(Icons.play_arrow),
                 label: Text(
                   'Start Match',
@@ -375,273 +615,241 @@ class _ScoringScreenState extends State<ScoringScreen> {
     Widget Function(PlayerModel)? subtitleBuilder,
     bool Function(PlayerModel)? enabledPredicate,
   }) {
-    String searchQuery = '';
+    final searchCtrl = TextEditingController();
+    String query = '';
 
     FocusScope.of(context).unfocus();
+    _isSelectionSheetOpen = true;
 
     Get.bottomSheet(
       StatefulBuilder(
-        builder: (context, setDialogState) {
-          final sheetBg = isDark ? const Color(0xFF111827) : Colors.white;
-          final cardColor =
-              isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6);
-          final accentColor = color;
-
+        builder: (ctx, setInner) {
           final filteredPlayers =
-              players.where((p) {
-                return p.name.toLowerCase().contains(searchQuery.toLowerCase());
-              }).toList();
+              players
+                  .where((p) => p.name.toLowerCase().contains(query))
+                  .toList();
 
-          return SafeArea(
-            child: Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.85,
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(32),
               ),
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(32),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white12 : Colors.black12,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: accentColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(14),
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(icon, color: accentColor, size: 24),
+                        child: Icon(icon, color: color, size: 24),
                       ),
                       const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Select $label',
-                              style: GoogleFonts.outfit(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              'Available from your team',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        'Select $label',
+                        style: GoogleFonts.outfit(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : AppTheme.primaryDark,
                         ),
-                      ),
-                      IconButton(
-                        onPressed: () => Get.back(),
-                        icon: Icon(Icons.close, color: Colors.grey[400]),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    onChanged: (val) => setDialogState(() => searchQuery = val),
-                    style: GoogleFonts.inter(
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
+                ),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: TextField(
+                    controller: searchCtrl,
                     decoration: InputDecoration(
-                      hintText: 'Search $label...',
-                      hintStyle: GoogleFonts.inter(color: Colors.grey),
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        color: Colors.grey,
-                        size: 20,
-                      ),
+                      hintText: 'Search for $label...',
+                      prefixIcon: const Icon(Icons.search),
                       filled: true,
-                      fillColor: cardColor,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      fillColor:
+                          isDark ? const Color(0xFF1E293B) : Colors.grey[100],
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide.none,
                       ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
                     ),
+                    onChanged: (v) => setInner(() => query = v.toLowerCase()),
                   ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child:
-                        filteredPlayers.isEmpty
-                            ? Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 60),
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: Get.height * 0.6),
+                  child:
+                      filteredPlayers.isEmpty
+                          ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(40),
                               child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.person_off_rounded,
-                                    size: 48,
-                                    color: Colors.grey[300],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'No players found',
-                                    style: GoogleFonts.inter(
-                                      color: Colors.grey,
-                                      fontSize: 16,
+                                  if (searchCtrl.text.isEmpty) ...[
+                                    const CircularProgressIndicator(
+                                      color: AppTheme.primaryGreen,
                                     ),
-                                  ),
-                                ],
-                              ),
-                            )
-                            : ListView.separated(
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.only(bottom: 32),
-                              itemCount: filteredPlayers.length,
-                              separatorBuilder:
-                                  (context, index) =>
-                                      const SizedBox(height: 10),
-                              itemBuilder: (ctx, i) {
-                                final p = filteredPlayers[i];
-                                final isSelected = p.id == selectedId;
-                                final isEnabled =
-                                    enabledPredicate?.call(p) ?? true;
-
-                                return Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap:
-                                        isEnabled
-                                            ? () {
-                                              Get.back();
-                                              onChanged(p.id);
-                                            }
-                                            : null,
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Opacity(
-                                      opacity: isEnabled ? 1.0 : 0.5,
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                          milliseconds: 200,
-                                        ),
-                                        padding: const EdgeInsets.all(14),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              isSelected
-                                                  ? accentColor.withOpacity(0.1)
-                                                  : cardColor,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color:
-                                                isSelected
-                                                    ? accentColor
-                                                    : (isDark
-                                                        ? Colors.white
-                                                            .withOpacity(0.05)
-                                                        : Colors.black
-                                                            .withOpacity(0.05)),
-                                            width: 1.5,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            CircleAvatar(
-                                              radius: 20,
-                                              backgroundColor:
-                                                  isSelected
-                                                      ? accentColor
-                                                      : accentColor.withOpacity(
-                                                        0.1,
-                                                      ),
-                                              child: Text(
-                                                p.name.isNotEmpty
-                                                    ? p.name[0].toUpperCase()
-                                                    : 'P',
-                                                style: GoogleFonts.outfit(
-                                                  color:
-                                                      isSelected
-                                                          ? Colors.white
-                                                          : accentColor,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 16,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    p.name,
-                                                    style: GoogleFonts.inter(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      color:
-                                                          isDark
-                                                              ? Colors.white
-                                                              : Colors.black87,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  if (subtitleBuilder != null)
-                                                    subtitleBuilder(p),
-                                                ],
-                                              ),
-                                            ),
-                                            if (isSelected)
-                                              Icon(
-                                                Icons.check_circle_rounded,
-                                                color: accentColor,
-                                              )
-                                            else if (!isEnabled)
-                                              const Icon(
-                                                Icons.block_flipped,
-                                                color: Colors.grey,
-                                                size: 20,
-                                              )
-                                            else
-                                              Icon(
-                                                Icons
-                                                    .add_circle_outline_rounded,
-                                                color: Colors.grey[400],
-                                              ),
-                                          ],
-                                        ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Loading players...',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.grey,
                                       ),
                                     ),
-                                  ),
-                                );
-                              },
+                                  ] else ...[
+                                    Icon(
+                                      Icons.search_off_rounded,
+                                      size: 48,
+                                      color: Colors.grey.withOpacity(0.5),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No players found matching "$query"',
+                                      style: GoogleFonts.inter(
+                                        color: Colors.grey,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
-                  ),
-                ],
-              ),
+                          )
+                          : ListView.builder(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+                            itemCount: filteredPlayers.length,
+                            itemBuilder: (ctx, i) {
+                              final player = filteredPlayers[i];
+                              final isSelected = selectedId == player.id;
+                              final isEnabled =
+                                  enabledPredicate?.call(player) ?? true;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: InkWell(
+                                  onTap:
+                                      isEnabled
+                                          ? () {
+                                            onChanged(player.id);
+                                            Get.back();
+                                          }
+                                          : null,
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          isSelected
+                                              ? color.withOpacity(0.1)
+                                              : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color:
+                                            isSelected
+                                                ? color.withOpacity(0.5)
+                                                : Colors.transparent,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Opacity(
+                                          opacity: isEnabled ? 1.0 : 0.4,
+                                          child: _buildAvatar(
+                                            player.name,
+                                            24,
+                                            isSelected: isSelected,
+                                            color: color,
+                                            imageUrl: player.profileImageUrl,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                player.name,
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 16,
+                                                  fontWeight:
+                                                      isSelected
+                                                          ? FontWeight.w800
+                                                          : FontWeight.w600,
+                                                  color:
+                                                      isSelected
+                                                          ? color
+                                                          : (isEnabled
+                                                              ? (isDark
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                      .black87)
+                                                              : Colors.grey),
+                                                ),
+                                              ),
+                                              if (subtitleBuilder != null)
+                                                subtitleBuilder(player)
+                                              else
+                                                Text(
+                                                  player.role.replaceAll(
+                                                    '_',
+                                                    ' ',
+                                                  ),
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 12,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          Icon(Icons.check_circle, color: color)
+                                        else if (!isEnabled)
+                                          const Icon(
+                                            Icons.block,
+                                            color: Colors.grey,
+                                            size: 16,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                ),
+              ],
             ),
           );
         },
       ),
       isScrollControlled: true,
-    );
+      ignoreSafeArea: false,
+      backgroundColor: Colors.transparent,
+    ).then((_) {
+      _isSelectionSheetOpen = false;
+    });
   }
 
   // Main Scoring View
@@ -689,380 +897,181 @@ class _ScoringScreenState extends State<ScoringScreen> {
           !isLastPlayerStanding;
       final needsBowler = actualBowler == null;
 
-      final bgColor = isDark ? AppTheme.primaryDark : const Color(0xFFF8FAFC);
-
       return SafeArea(
         child: Column(
           children: [
             _buildScoreSummary(match, isDark),
 
-            // Condition Indicators Bar
-            if (match.isFreeHit || match.groundName.isNotEmpty)
+            if (match.isFreeHit)
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  border: Border(
-                    bottom: BorderSide(
-                      color:
-                          isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.black.withOpacity(0.05),
+                width: double.infinity,
+                color: Colors.redAccent,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: const Center(
+                  child: Text(
+                    'FREE HIT',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
                     ),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    if (match.isFreeHit)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.wicketRed.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: AppTheme.wicketRed.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.flash_on_rounded,
-                              color: AppTheme.wicketRed,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'FREE HIT',
-                              style: GoogleFonts.inter(
-                                color: AppTheme.wicketRed,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const Spacer(),
-                    if (match.groundName.isNotEmpty)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.location_on_rounded,
-                            color: isDark ? Colors.white30 : Colors.black26,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            match.groundName,
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.white30 : Colors.black26,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
+              ),
+
+            if (match.groundName.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  '${match.groundName}',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
                 ),
               ),
 
             _buildCurrentPlayersBar(match, batsman, nonStriker, bowler, isDark),
 
-            Expanded(
-              child: Container(
-                color: bgColor,
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    children: [
-                      if (match.isInningsBreak)
-                        _buildInningsBreakView(match, scoringProv, isDark)
-                      else ...[
-                        _buildThisOverStrip(scoringProv, match, isDark),
+            // if (match.activePartnership != null)
+            //   Padding(
+            //     padding: const EdgeInsets.symmetric(
+            //       horizontal: 16,
+            //       vertical: 8,
+            //     ),
+            //     child: PartnershipCard(
+            //       partnership: match.activePartnership!,
+            //       isDark: isDark,
+            //     ),
+            //   ),
+            if (match.isInningsBreak)
+              _buildInningsBreakView(match, scoringProv, isDark)
+            else ...[
+              Expanded(child: _buildThisOverStrip(scoringProv, match, isDark)),
 
-                        // Special In-View CTA for Inning Start (Chase)
-                        if (isScorer && needsStriker && needsBowler)
-                          _buildRunChaseStartCard(match, isDark),
+              // ── Innings Break Banner (Second Innings) ─────────────
+              if (isScorer && needsStriker && needsBowler)
+                Builder(
+                  builder: (context) {
+                    if (!match.isSecondInnings ||
+                        match.currentScore.overs > 0 ||
+                        match.currentScore.balls > 0)
+                      return const SizedBox.shrink();
 
-                        // View Only Mode Banner
-                        if (!isScorer) _buildViewOnlyBanner(isDark),
+                    final target = match.targetScore;
 
-                        const SizedBox(height: 24),
-                      ],
-                    ],
-                  ),
+                    return Container(
+                      margin: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1A4731), Color(0xFF0D2B1E)],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppTheme.primaryGreen,
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.sports_cricket,
+                            color: AppTheme.primaryGreen,
+                            size: 32,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'INNINGS BREAK',
+                            style: GoogleFonts.outfit(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primaryGreen,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${match.battingTeamName} needs $target runs to win',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Select new batsmen & bowler to begin 2nd innings',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.white70,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-              ),
-            ),
 
-            // Scoring Controls / CTAs
-            if (isScorer &&
-                !match.isInningsBreak &&
-                match.status == AppConstants.matchLive)
-              _buildBottomControlsArea(
-                match,
-                players,
-                scoringProv,
-                batsman,
-                bowler,
-                needsStriker,
-                needsNonStriker,
-                needsBowler,
-                isDark,
-              ),
+              // const Spacer(), // Removed to allow _buildThisOverStrip to expand
+              if (!isScorer)
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Card(
+                    color: AppTheme.accentBlue.withOpacity(0.1),
+                    child: const ListTile(
+                      leading: Icon(
+                        Icons.info_outline,
+                        color: AppTheme.accentBlue,
+                      ),
+                      title: Text('View Only Mode'),
+                      subtitle: Text('Only assigned scorers can record balls.'),
+                    ),
+                  ),
+                )
+              else if (needsStriker)
+                _buildMissingPlayerCta(
+                  'Select Striker',
+                  Icons.sports_cricket,
+                  AppTheme.primaryGreen,
+                  () => _openStrikerSelection(match, players, isDark),
+                )
+              else if (needsNonStriker)
+                _buildMissingPlayerCta(
+                  'Select Non-Striker',
+                  Icons.person_outline,
+                  AppTheme.accentBlue,
+                  () => _openNonStrikerSelection(match, players, isDark),
+                )
+              else if (isScorer && needsBowler)
+                _buildMissingPlayerCta(
+                  'Select Bowler for New Over',
+                  Icons.gps_fixed,
+                  AppTheme.accentPurple,
+                  () => _openBowlerSelection(match, players, isDark),
+                )
+              else if (isScorer)
+                _buildScoringButtons(
+                  match,
+                  batsman,
+                  bowler,
+                  scoringProv,
+                  isDark,
+                ),
+            ],
           ],
         ),
       );
     } catch (e, stack) {
-      return _buildCrashView(e, stack);
+      return Container(
+        color: Colors.black,
+        padding: const EdgeInsets.all(16),
+        child: SingleChildScrollView(
+          child: Text(
+            'CRASH IN SCORING VIEW:\n$e\n\n$stack',
+            style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+          ),
+        ),
+      );
     }
-  }
-
-  Widget _buildRunChaseStartCard(MatchModel match, bool isDark) {
-    if (!match.isSecondInnings ||
-        match.currentScore.overs > 0 ||
-        match.currentScore.balls > 0) {
-      return const SizedBox.shrink();
-    }
-
-    final target = match.targetScore;
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1B263B) : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(
-          color: AppTheme.primaryGreen.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryGreen.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.sports_cricket_rounded,
-              color: AppTheme.primaryGreen,
-              size: 32,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'CHASE TIME',
-            style: GoogleFonts.outfit(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: AppTheme.primaryGreen,
-              letterSpacing: 2,
-            ),
-          ),
-          const SizedBox(height: 8),
-          RichText(
-            textAlign: TextAlign.center,
-            text: TextSpan(
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: isDark ? Colors.white : Colors.black87,
-              ),
-              children: [
-                const TextSpan(text: 'Target to Win: '),
-                TextSpan(
-                  text: '$target Runs',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: AppTheme.primaryGreen,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Select your openers and a bowler to begin the final innings',
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              color: isDark ? Colors.white54 : Colors.black54,
-              height: 1.4,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildViewOnlyBanner(bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1B263B) : Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: AppTheme.accentBlue.withOpacity(0.2),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.accentBlue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.remove_red_eye_rounded,
-                color: AppTheme.accentBlue,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Viewer Mode',
-                    style: GoogleFonts.outfit(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Recording is restricted to scorers.',
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: isDark ? Colors.white54 : Colors.black54,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomControlsArea(
-    MatchModel match,
-    Map<String, PlayerModel> players,
-    ScoringController scoringProv,
-    PlayerModel batsman,
-    PlayerModel bowler,
-    bool needsStriker,
-    bool needsNonStriker,
-    bool needsBowler,
-    bool isDark,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1B263B) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (needsStriker)
-            _buildMissingPlayerCta(
-              'Select Striker',
-              Icons.sports_cricket,
-              AppTheme.primaryGreen,
-              () => _openStrikerSelection(match, players, isDark),
-            )
-          else if (needsNonStriker)
-            _buildMissingPlayerCta(
-              'Select Non-Striker',
-              Icons.person_outline,
-              AppTheme.accentBlue,
-              () => _openNonStrikerSelection(match, players, isDark),
-            )
-          else if (needsBowler)
-            _buildMissingPlayerCta(
-              'Choose Bowler',
-              Icons.gps_fixed,
-              AppTheme.accentPurple,
-              () => _openBowlerSelection(match, players, isDark),
-            )
-          else
-            _buildScoringButtons(match, batsman, bowler, scoringProv, isDark),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCrashView(dynamic e, dynamic stack) {
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: Colors.redAccent,
-            size: 48,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'SCORING ENGINE ERROR',
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 18,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(
-                '$e\n\n$stack',
-                style: const TextStyle(
-                  color: Colors.redAccent,
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildInningsBreakView(
@@ -1070,206 +1079,395 @@ class _ScoringScreenState extends State<ScoringScreen> {
     ScoringController scoringProv,
     bool isDark,
   ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.hourglass_empty,
-              size: 64,
-              color: Colors.orange,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Innings is Completed',
-            style: GoogleFonts.outfit(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Waiting to start the next innings',
-            style: GoogleFonts.inter(fontSize: 16, color: Colors.grey),
-          ),
-          const SizedBox(height: 48),
-          SizedBox(
-            width: 250,
-            child: ElevatedButton.icon(
-              onPressed: () => scoringProv.startNextInnings(match),
-              icon: const Icon(Icons.play_circle_filled, color: Colors.white),
-              label: Text(
-                'Start New Innings',
-                style: GoogleFonts.inter(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+    return Expanded(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                shape: BoxShape.circle,
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryGreen,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
+              child: const Icon(
+                Icons.hourglass_empty,
+                size: 64,
+                color: Colors.orange,
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            Text(
+              'Innings is Completed',
+              style: GoogleFonts.outfit(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Waiting to start the next innings',
+              style: GoogleFonts.inter(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 48),
+            SizedBox(
+              width: 250,
+              child: ElevatedButton.icon(
+                onPressed: () => scoringProv.startNextInnings(match),
+                icon: const Icon(Icons.play_circle_filled, color: Colors.white),
+                label: Text(
+                  'Start New Innings',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryGreen,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMatchCompletedView(MatchModel match, bool isDark) {
-    return SizedBox.expand(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF00C853), Color(0xFF00E676)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF00C853), Color(0xFF00E676)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00C853).withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
                   ),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00C853).withOpacity(0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.emoji_events,
-                  size: 80,
-                  color: Colors.white,
-                ),
+                ],
               ),
-              const SizedBox(height: 32),
-              Text(
-                'Match Completed',
-                style: GoogleFonts.outfit(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
+              child: const Icon(
+                Icons.emoji_events,
+                size: 80,
+                color: Colors.white,
               ),
-              if (match.customRulesEnabled) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    'SINGLE BATSMAN MODE',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.orange,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 32),
+            Text(
+              'Match Completed',
+              style: GoogleFonts.outfit(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            if (match.customRulesEnabled) ...[
+              const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
+                  horizontal: 12,
+                  vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryGreen.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppTheme.primaryGreen.withOpacity(0.2),
-                  ),
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
                 ),
                 child: Text(
-                  match.result ?? 'Match Ended',
-                  textAlign: TextAlign.center,
+                  'SINGLE BATSMAN MODE',
                   style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.primaryGreen,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.orange,
+                    letterSpacing: 1,
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
-              if (match.manOfMatchName != null) ...[
-                Text(
-                  'PLAYER OF THE MATCH',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.grey,
-                    letterSpacing: 2,
-                  ),
+            ],
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withOpacity(0.2),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  match.manOfMatchName!,
-                  style: GoogleFonts.outfit(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
+              ),
+              child: Text(
+                match.result ?? 'Match Ended',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.primaryGreen,
                 ),
-                const SizedBox(height: 48),
-              ],
-              if ((authController.currentUser?.isAdmin ?? false) &&
-                  matchController.liveMatches.isEmpty) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _showRematchTossDialog(match),
-                    icon: const Icon(Icons.refresh, color: Colors.white),
-                    label: Text(
-                      'Continue With These Teams',
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 40),
+            // MOTM Section
+            Builder(
+              builder: (context) {
+                final motmMap = match.manOfTheMatchMap;
+                final motmPlayerId = match.manOfMatch;
+                final motmPlayer =
+                    motmPlayerId != null
+                        ? matchController.players[motmPlayerId]
+                        : null;
+
+                final String motmName =
+                    (motmMap?['name']?.toString() ??
+                            motmPlayer?.name ??
+                            match.manOfMatchName ??
+                            "")
+                        .trim();
+                final String? motmImage =
+                    (motmMap?['image']?.toString()) ??
+                    motmPlayer?.profileImageUrl;
+                final String? motmTeam =
+                    (motmMap?['team']?.toString()) ??
+                    (motmPlayer?.teamId == 'A'
+                        ? match.teamAName
+                        : (motmPlayer?.teamId == 'B' ? match.teamBName : null));
+
+                // Direct calculation if name is empty but match is completed
+                String displayMOTMName = motmName;
+                String? displayMOTMImage = motmImage;
+                String? displayMOTMTeam = motmTeam;
+                PlayerModel? displayMOTMPlayer = motmPlayer;
+
+                if (displayMOTMName.isEmpty &&
+                    match.isCompleted &&
+                    matchController.players.isNotEmpty) {
+                  String winningTeamId = '';
+                  if (match.result != null) {
+                    if (match.result!.toLowerCase().contains(
+                      match.teamAName.toLowerCase(),
+                    )) {
+                      winningTeamId = 'A';
+                    } else if (match.result!.toLowerCase().contains(
+                      match.teamBName.toLowerCase(),
+                    )) {
+                      winningTeamId = 'B';
+                    }
+                  }
+
+                  PlayerModel? bestP;
+                  double bestS = -1;
+
+                  for (var p in matchController.players.values) {
+                    double s = p.calculateMOTMScore(winningTeamId);
+                    if (s > bestS) {
+                      bestS = s;
+                      bestP = p;
+                    }
+                  }
+
+                  if (bestP != null) {
+                    displayMOTMName = bestP.name;
+                    displayMOTMImage = bestP.profileImageUrl;
+                    displayMOTMTeam =
+                        bestP.teamId == 'A' ? match.teamAName : match.teamBName;
+                    displayMOTMPlayer = bestP;
+                  }
+                }
+
+                final isScorer =
+                    match.scorerIds.contains(authController.userId) ||
+                    (authController.currentUser?.isAdmin ?? false);
+
+                if (displayMOTMName.isNotEmpty) {
+                  return Column(
+                    children: [
+                      MOTMAwardCard(
+                        playerName: displayMOTMName,
+                        playerImageUrl: displayMOTMImage,
+                        teamName: displayMOTMTeam,
+                        runs: displayMOTMPlayer?.runsScored ?? 0,
+                        wickets: displayMOTMPlayer?.wicketsTaken ?? 0,
+                        catches: displayMOTMPlayer?.catches ?? 0,
+                        canEdit: false,
                       ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryGreen,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                      const SizedBox(height: 48),
+                    ],
+                  );
+                } else {
+                  if (match.isCompleted && match.result != null) {
+                    Future.microtask(() {
+                      Get.find<ScoringController>().saveManOfMatch(
+                        match.id,
+                        match.result!,
+                      );
+                    });
+                  }
+                  return Column(
+                    children: [
+                      _buildSelectMOTMPlaceholder(match, isDark),
+                      const SizedBox(height: 48),
+                    ],
+                  );
+                }
+              },
+            ),
+            if (match.tournamentId != null) ...[
+              // Tournament Actions
+              Obx(() {
+                final nextMatch = tournamentController.nextMatchToPlay;
+                if (nextMatch != null) {
+                  return Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Get.offNamedUntil(
+                              AppRoutes.createMatch,
+                              (route) => route.isFirst,
+                              arguments: {
+                                'tournamentId': match.tournamentId,
+                                'existingMatchId': nextMatch.id,
+                              },
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                          ),
+                          label: Text(
+                            'Continue Next Match',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryGreen,
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
                       ),
+                      const SizedBox(height: 12),
+                    ],
+                  );
+                } else {
+                  return Column(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryGreen.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppTheme.primaryGreen.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              color: AppTheme.primaryGreen,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'All Matches Completed',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  );
+                }
+              }),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Get.offNamedUntil(
+                      AppRoutes.tournamentDetail,
+                      (route) => route.isFirst,
+                      arguments: match.tournamentId,
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.dashboard_rounded,
+                    color: AppTheme.primaryGreen,
+                  ),
+                  label: Text(
+                    'Go to Tournament',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primaryGreen,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: AppTheme.primaryGreen),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed:
+                      () => Get.toNamed(
+                        AppRoutes.matchDetail,
+                        arguments: match.id,
+                      ),
+                  icon: const Icon(Icons.bar_chart_rounded, color: Colors.grey),
+                  label: const Text(
+                    'View Match Results',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ] else if ((authController.currentUser?.isAdmin ?? false) &&
+                matchController.liveMatches.isEmpty &&
+                match.tournamentId == null) ...[
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => Get.back(),
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed:
+                      () => MatchDialogs.showRematchDialog(context, match),
+                  icon: const Icon(Icons.refresh, color: Colors.white),
                   label: Text(
-                    'Go Back Home',
+                    'Continue With These Teams',
                     style: GoogleFonts.inter(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -1277,8 +1475,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        isDark ? const Color(0xFF1B263B) : Colors.black87,
+                    backgroundColor: AppTheme.primaryGreen,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -1286,8 +1483,32 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
             ],
-          ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Get.offAllNamed(AppRoutes.home),
+                icon: const Icon(Icons.home_rounded, color: Colors.white),
+                label: Text(
+                  'Go Back Home',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      isDark ? const Color(0xFF1B263B) : Colors.black87,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1299,94 +1520,28 @@ class _ScoringScreenState extends State<ScoringScreen> {
     Color color,
     VoidCallback onTap,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  color.withOpacity(isDark ? 0.2 : 0.1),
-                  color.withOpacity(isDark ? 0.1 : 0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.1),
-                  blurRadius: 15,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: double.infinity,
+        height: 60,
+        child: ElevatedButton.icon(
+          icon: Icon(icon, color: Colors.white),
+          label: Text(
+            text,
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
             ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withOpacity(0.4),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 28),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Action Required',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        text,
-                        style: GoogleFonts.outfit(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color:
-                        isDark
-                            ? Colors.white10
-                            : Colors.black.withOpacity(0.05),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.add_rounded, color: color, size: 24),
-                ),
-              ],
+          ),
+          onPressed: onTap,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
+            elevation: 4,
           ),
         ),
       ),
@@ -1411,250 +1566,186 @@ class _ScoringScreenState extends State<ScoringScreen> {
     double radius, {
     bool isSelected = false,
     Color? color,
+    String? imageUrl,
   }) {
     return CircleAvatar(
       radius: radius,
       backgroundColor:
           isSelected ? (color ?? AppTheme.primaryGreen) : Colors.grey[300],
-      child: Text(
-        name.isNotEmpty ? name[0].toUpperCase() : '?',
-        style: TextStyle(
-          fontSize: radius * 0.8,
-          fontWeight: FontWeight.bold,
-          color: isSelected ? Colors.white : Colors.grey[600],
-        ),
-      ),
+      backgroundImage:
+          imageUrl != null && imageUrl.isNotEmpty
+              ? NetworkImage(imageUrl)
+              : null,
+      child:
+          imageUrl == null || imageUrl.isEmpty
+              ? Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  fontSize: radius * 0.8,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : Colors.grey[600],
+                ),
+              )
+              : null,
     );
   }
 
   Widget _buildScoreSummary(MatchModel match, bool isDark) {
     final score = match.currentScore;
+
+    // ── Chase info (2nd innings only) ────────────────────────────────
     final initialBattingTeam =
         match.tossWonBy == 'A'
             ? (match.tossDecision == 'bat' ? 'A' : 'B')
             : (match.tossDecision == 'bat' ? 'B' : 'A');
     final isSecondInnings = match.currentInnings != initialBattingTeam;
 
-    int? target;
-    int? runsNeeded;
-    int? ballsRemaining;
-    double? rrr;
+    int target = 0;
+    int runsNeeded = 0;
+    int ballsRemaining = 0;
+    double rrr = 0.0;
 
     if (isSecondInnings) {
       final firstInningsScore =
           match.currentInnings == 'A' ? match.teamBScore : match.teamAScore;
       target = firstInningsScore.runs + 1;
       runsNeeded = (target - score.runs).clamp(0, target);
-      final totalBalls = match.totalOvers * 6;
-      final ballsBowled = (score.overs * 6) + score.balls;
+      final totalBalls = match.totalOvers * match.ballsPerOver;
+      final ballsBowled = (score.overs * match.ballsPerOver) + score.balls;
       ballsRemaining = (totalBalls - ballsBowled).clamp(0, totalBalls);
-      rrr = ballsRemaining > 0 ? (runsNeeded * 6) / ballsRemaining : 0.0;
+      rrr =
+          ballsRemaining > 0
+              ? (runsNeeded * match.ballsPerOver) / ballsRemaining
+              : 0.0;
     }
 
-    final primaryGradient =
-        isDark
-            ? const LinearGradient(
-              colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            )
-            : const LinearGradient(
-              colors: [Color(0xFF00C853), Color(0xFF009624)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            );
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: primaryGradient,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return Column(
+      children: [
+        // ── Main score bar ────────────────────────────────────────
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1B263B) : AppTheme.primaryGreen,
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFFD600),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              match.battingTeamName.toUpperCase(),
-                              style: GoogleFonts.inter(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.5,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            '${score.runs}',
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 40,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                            ),
-                          ),
-                          Text(
-                            ' / ${score.wickets}',
-                            style: GoogleFonts.outfit(
-                              color: Colors.white.withOpacity(0.85),
-                              fontSize: 22,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // Score
+              Column(
+                children: [
+                  Text(
+                    match.battingTeamName,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 12,
+                    ),
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        'OVERS',
-                        style: GoogleFonts.inter(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 8,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            score.oversDisplay,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          Text(
-                            ' / ${match.totalOvers}',
-                            style: GoogleFonts.outfit(
-                              color: Colors.white.withOpacity(0.6),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(color: Colors.black.withOpacity(0.15)),
-            child: Row(
-              children: [
-                _buildStatItem('CRR', score.runRate.toStringAsFixed(2)),
-                if (isSecondInnings && rrr != null) ...[
-                  const SizedBox(width: 20),
-                  _buildStatItem(
-                    'RRR',
-                    rrr.toStringAsFixed(2),
-                    valueColor:
-                        rrr > score.runRate
-                            ? const Color(0xFFFFD600)
-                            : const Color(0xFF00E676),
+                  Text(
+                    '${score.runs}/${score.wickets}',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
-              ],
-            ),
-          ),
-          if (isSecondInnings && runsNeeded != null && ballsRemaining != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-              color:
-                  isDark
-                      ? Colors.white.withOpacity(0.05)
-                      : Colors.black.withOpacity(0.05),
-              child: Text(
-                '${match.battingTeamName} needs $runsNeeded runs in $ballsRemaining balls',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 0.2,
+              ),
+              Container(height: 40, width: 1, color: Colors.white24),
+              // Overs
+              Column(
+                children: [
+                  Text(
+                    'OVERS',
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final isCustom = match.customRulesEnabled;
+                      return Text(
+                        isCustom
+                            ? score.oversDisplay
+                            : '${score.oversDisplay}/${match.totalOvers}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              Container(height: 40, width: 1, color: Colors.white24),
+              // CRR
+              Column(
+                children: [
+                  Text(
+                    'CRR',
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                  Text(
+                    score.runRate.toStringAsFixed(2),
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              // RRR — only in 2nd innings
+              if (isSecondInnings && rrr != null) ...[
+                Container(height: 40, width: 1, color: Colors.white24),
+                Column(
+                  children: [
+                    Text(
+                      'RRR',
+                      style: GoogleFonts.inter(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                    Text(
+                      rrr.toStringAsFixed(2),
+                      style: GoogleFonts.outfit(
+                        color:
+                            rrr > score.runRate
+                                ? Colors.orangeAccent
+                                : Colors.greenAccent,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
+              ],
+            ],
+          ),
+        ),
+        // ── Chase info bar ─────────────────────────────────────────
+        if (isSecondInnings && runsNeeded != null && ballsRemaining != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+            color: isDark ? const Color(0xFF0D1418) : const Color(0xFF1A4731),
+            child: Text(
+              '${match.battingTeamName} need${runsNeeded == 1 ? 's' : ''} $runsNeeded run${runsNeeded == 1 ? '' : 's'} in $ballsRemaining ball${ballsRemaining == 1 ? '' : 's'}',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                letterSpacing: 0.3,
               ),
             ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value, {Color? valueColor}) {
-    return Row(
-      children: [
-        Text(
-          '$label: ',
-          style: GoogleFonts.inter(
-            color: Colors.white.withOpacity(0.5),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
           ),
-        ),
-        Text(
-          value,
-          style: GoogleFonts.outfit(
-            color: valueColor ?? Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
       ],
     );
   }
@@ -1666,214 +1757,165 @@ class _ScoringScreenState extends State<ScoringScreen> {
     PlayerModel bowler,
     bool isDark,
   ) {
+    bool canReplaceBowler = match.currentScore.balls == 0;
+
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F172A) : Colors.grey[50],
-        border: Border(
-          bottom: BorderSide(
-            color:
-                isDark
-                    ? Colors.white.withOpacity(0.05)
-                    : Colors.black.withOpacity(0.05),
-          ),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+      color: isDark ? Colors.black26 : Colors.grey[200],
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 6,
+            flex: 2,
             child: Column(
               children: [
-                _buildBatsmanCard(match, batsman, true, isDark),
-                if (nonStriker != null && !match.customRulesEnabled) ...[
-                  const SizedBox(height: 6),
-                  _buildBatsmanCard(match, nonStriker, false, isDark),
-                ],
+                _buildBatsmanRow(match, batsman, true, isDark),
+                if (nonStriker != null && !match.customRulesEnabled)
+                  _buildBatsmanRow(match, nonStriker, false, isDark),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(flex: 4, child: _buildBowlerCard(match, bowler, isDark)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBatsmanCard(
-    MatchModel match,
-    PlayerModel player,
-    bool isStriker,
-    bool isDark,
-  ) {
-    final canReplace = player.ballsFaced == 0;
-    final accentColor = AppTheme.primaryGreen;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap:
-            canReplace
-                ? () {
-                  if (isStriker) {
-                    _openStrikerSelection(
-                      match,
-                      matchController.players,
-                      isDark,
-                    );
-                  } else {
-                    _openNonStrikerSelection(
-                      match,
-                      matchController.players,
-                      isDark,
-                    );
-                  }
-                }
-                : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color:
-                isStriker
-                    ? accentColor.withOpacity(isDark ? 0.15 : 0.08)
-                    : (isDark ? Colors.white.withOpacity(0.03) : Colors.white),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color:
-                  isStriker
-                      ? accentColor.withOpacity(0.4)
-                      : (isDark
-                          ? Colors.white.withOpacity(0.05)
-                          : Colors.black.withOpacity(0.05)),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              if (isStriker) ...[
-                const Icon(
-                  Icons.sports_cricket,
-                  size: 14,
-                  color: AppTheme.primaryGreen,
-                ),
-                const SizedBox(width: 6),
-              ],
-              Expanded(
+          Container(width: 1, height: 60, color: Colors.grey.withOpacity(0.3)),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 1,
+            child: InkWell(
+              onTap:
+                  canReplaceBowler
+                      ? () => _openBowlerSelection(
+                        match,
+                        matchController.players,
+                        isDark,
+                      )
+                      : null,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    const Icon(
+                      Icons.gps_fixed,
+                      size: 14,
+                      color: AppTheme.accentPurple,
+                    ),
                     Text(
-                      player.name,
+                      bowler.name,
                       style: GoogleFonts.inter(
                         fontSize: 13,
-                        fontWeight:
-                            isStriker ? FontWeight.w800 : FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.accentPurple,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (canReplace)
+                    Text(
+                      '${bowler.oversBowledDisplay} - ${bowler.bowlingFigures}',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    if (canReplaceBowler)
                       Text(
-                        'TAP TO REPLACE',
+                        'Replace',
                         style: GoogleFonts.inter(
-                          fontSize: 7,
-                          fontWeight: FontWeight.w900,
-                          color: accentColor.withOpacity(0.8),
-                          letterSpacing: 0.5,
+                          fontSize: 10,
+                          color: AppTheme.accentPurple.withOpacity(0.7),
+                          decoration: TextDecoration.underline,
+                          decorationColor: AppTheme.accentPurple.withOpacity(
+                            0.7,
+                          ),
                         ),
                       ),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${player.runsScored}',
-                    style: GoogleFonts.outfit(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  Text(
-                    '${player.ballsFaced} balls',
-                    style: GoogleFonts.inter(fontSize: 9, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildBowlerCard(MatchModel match, PlayerModel player, bool isDark) {
-    final canReplace = player.oversBowledDisplay == '0.0';
-    final accentColor = AppTheme.accentPurple;
+  Widget _buildBatsmanRow(
+    MatchModel match,
+    PlayerModel player,
+    bool isStriker,
+    bool isDark,
+  ) {
+    bool canReplace = player.ballsFaced == 0;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap:
-            canReplace
-                ? () =>
-                    _openBowlerSelection(match, matchController.players, isDark)
-                : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: accentColor.withOpacity(isDark ? 0.15 : 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: accentColor.withOpacity(0.4), width: 1),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.gps_fixed, size: 14, color: accentColor),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      player.name,
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+    return InkWell(
+      onTap:
+          canReplace
+              ? () {
+                if (isStriker) {
+                  _openStrikerSelection(match, matchController.players, isDark);
+                } else {
+                  _openNonStrikerSelection(
+                    match,
+                    matchController.players,
+                    isDark,
+                  );
+                }
+              }
+              : null,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration:
+            isStriker
+                ? BoxDecoration(
+                  color: AppTheme.primaryGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: AppTheme.primaryGreen.withOpacity(0.3),
                   ),
+                )
+                : null,
+        child: Row(
+          children: [
+            if (isStriker)
+              const Icon(
+                Icons.sports_cricket,
+                size: 14,
+                color: AppTheme.primaryGreen,
+              ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    player.name,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight:
+                          isStriker ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (canReplace)
+                    Text(
+                      'Replace',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        color: AppTheme.primaryGreen.withOpacity(0.7),
+                        decoration: TextDecoration.underline,
+                        decorationColor: AppTheme.primaryGreen.withOpacity(0.7),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                '${player.oversBowledDisplay} - ${player.bowlingFigures}',
-                style: GoogleFonts.outfit(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: accentColor,
-                ),
+            ),
+            Text(
+              '${player.runsScored}(${player.ballsFaced})',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: isStriker ? FontWeight.bold : FontWeight.normal,
               ),
-              if (canReplace)
-                Text(
-                  'CHANGE',
-                  style: GoogleFonts.inter(
-                    fontSize: 7,
-                    fontWeight: FontWeight.w900,
-                    color: accentColor.withOpacity(0.8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1884,6 +1926,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     MatchModel match,
     bool isDark,
   ) {
+    // Filter ball logs by current innings
     final allBalls =
         scoringProv.ballLogs
             .where((b) => b.innings == match.currentInnings)
@@ -1901,11 +1944,13 @@ class _ScoringScreenState extends State<ScoringScreen> {
       );
     }
 
+    // Build a map: overNumber → list of balls (already sorted ascending from listener)
     final Map<int, List<BallLog>> overMap = {};
     for (final ball in allBalls) {
       overMap.putIfAbsent(ball.overNumber, () => []).add(ball);
     }
 
+    // Sort over keys descending (latest over first)
     final sortedOverKeys =
         overMap.keys.toList()..sort((a, b) => b.compareTo(a));
     final visibleOvers = sortedOverKeys.toList();
@@ -1914,8 +1959,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
       width: double.infinity,
       color: isDark ? const Color(0xFF0D1B2A) : const Color(0xFFF9FAFB),
       child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
         padding: EdgeInsets.zero,
         itemCount: visibleOvers.length,
         separatorBuilder:
@@ -1928,24 +1971,26 @@ class _ScoringScreenState extends State<ScoringScreen> {
           final overNum = visibleOvers[index];
           final overBalls = overMap[overNum]!;
 
+          // Calculate total legal runs for this over
           final overRuns = overBalls.fold<int>(0, (sum, b) {
             int r = b.runs + (b.extraRuns ?? 0);
             return sum + r;
           });
 
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
             child: Row(
               children: [
+                // Over label
                 SizedBox(
-                  width: 60,
+                  width: 68,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         isCurrentOver ? 'THIS OVER' : 'OVER ${overNum + 1}',
                         style: GoogleFonts.inter(
-                          fontSize: 8,
+                          fontSize: 9,
                           fontWeight: FontWeight.bold,
                           color:
                               isCurrentOver
@@ -1957,7 +2002,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                       Text(
                         '$overRuns runs',
                         style: GoogleFonts.outfit(
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
                           color:
                               isCurrentOver
@@ -1968,6 +2013,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     ],
                   ),
                 ),
+                // Balls — oldest first (left to right)
                 Expanded(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -1975,9 +2021,9 @@ class _ScoringScreenState extends State<ScoringScreen> {
                       children:
                           overBalls.map((ball) {
                             return Container(
-                              margin: const EdgeInsets.only(right: 4),
-                              width: 26,
-                              height: 26,
+                              margin: const EdgeInsets.only(right: 6),
+                              width: 30,
+                              height: 30,
                               decoration: BoxDecoration(
                                 color: _getBallColor(ball),
                                 shape: BoxShape.circle,
@@ -1988,7 +2034,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                               isDark
                                                   ? Colors.white
                                                   : Colors.black87,
-                                          width: 1.5,
+                                          width: 2,
                                         )
                                         : null,
                               ),
@@ -2000,7 +2046,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                     child: Text(
                                       ball.displayText,
                                       style: GoogleFonts.outfit(
-                                        fontSize: 9,
+                                        fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                         color: _getBallTextColor(ball),
                                       ),
@@ -2038,21 +2084,10 @@ class _ScoringScreenState extends State<ScoringScreen> {
       );
     }
 
-    final screenHeight = MediaQuery.of(context).size.height;
-    final keypadHeight = (screenHeight * 0.35).clamp(240.0, 280.0);
-
     return Container(
-      height: keypadHeight,
+      height: 280, // Fixed height for the grid
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.primaryDark : Colors.white,
-        border: Border(
-          top: BorderSide(
-            color: isDark ? const Color(0xFF2D3748) : const Color(0xFFE2E8F0),
-            width: 1,
-          ),
-        ),
-      ),
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2072,7 +2107,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     scoringProv,
                   ),
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   '3',
@@ -2085,7 +2119,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     scoringProv,
                   ),
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   'WD',
@@ -2098,9 +2131,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     isDark,
                   ),
                   textColor: AppTheme.wideColor,
-                  fontWeight: FontWeight.bold,
                   isDark: isDark,
-                  fontSize: 16,
                 ),
               ],
             ),
@@ -2121,7 +2152,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     scoringProv,
                   ),
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   '4',
@@ -2136,7 +2166,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   subtitle: 'Four',
                   textColor: AppTheme.fourYellow,
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   'NB',
@@ -2149,9 +2178,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     isDark,
                   ),
                   textColor: AppTheme.noBallColor,
-                  fontWeight: FontWeight.bold,
                   isDark: isDark,
-                  fontSize: 16,
                 ),
               ],
             ),
@@ -2172,7 +2199,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     scoringProv,
                   ),
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   '6',
@@ -2187,7 +2213,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   subtitle: 'Six',
                   textColor: AppTheme.sixGold,
                   isDark: isDark,
-                  fontSize: 18,
                 ),
                 _buildGridBtn(
                   'BYE',
@@ -2199,9 +2224,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     scoringProv,
                     isDark,
                   ),
-                  textColor: AppTheme.accentBlue,
+                  textColor: AppTheme.byeColor,
                   isDark: isDark,
-                  fontSize: 14,
                 ),
               ],
             ),
@@ -2218,11 +2242,19 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   fontWeight: FontWeight.bold,
                   flex: 3,
                   isDark: isDark,
-                  isEnabled:
-                      scoringProv.ballLogs.isNotEmpty &&
-                      scoringProv.ballLogs.last.innings == match.currentInnings,
-                  fontSize: 14,
                 ),
+                // _buildGridBtn(
+                //   '5, 7',
+                //   () => _showRunsBottomSheet(
+                //     match,
+                //     batsman,
+                //     bowler,
+                //     scoringProv,
+                //     isDark,
+                //   ),
+                //   flex: 3,
+                //   isDark: isDark,
+                // ),
                 _buildGridBtn(
                   'OUT',
                   () => _showWicketDialog(
@@ -2236,7 +2268,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   fontWeight: FontWeight.bold,
                   flex: 3,
                   isDark: isDark,
-                  fontSize: 16,
                 ),
                 _buildGridBtn(
                   'LB',
@@ -2249,10 +2280,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     isDark,
                   ),
                   textColor: AppTheme.legByeColor,
-                  fontWeight: FontWeight.bold,
                   flex: 3,
                   isDark: isDark,
-                  fontSize: 14,
                 ),
               ],
             ),
@@ -2270,42 +2299,45 @@ class _ScoringScreenState extends State<ScoringScreen> {
     FontWeight? fontWeight,
     int flex = 4,
     required bool isDark,
-    bool isEnabled = true,
-    double? fontSize,
   }) {
-    final effectiveTextColor =
-        (!isEnabled || _isProcessingAction)
-            ? Colors.grey
-            : (textColor ?? (isDark ? Colors.white : Colors.black87));
-
-    Color? bgColor;
-    if (isEnabled && !_isProcessingAction) {
-      if (label == 'WD')
-        bgColor = AppTheme.wideColor.withOpacity(0.08);
-      else if (label == 'NB')
-        bgColor = AppTheme.noBallColor.withOpacity(0.08);
-      else if (label == 'OUT')
-        bgColor = AppTheme.wicketRed.withOpacity(0.08);
-      else if (label == 'UNDO')
-        bgColor = AppTheme.primaryGreen.withOpacity(0.08);
-      else if (label == '4')
-        bgColor = AppTheme.fourYellow.withOpacity(0.08);
-      else if (label == '6')
-        bgColor = AppTheme.sixGold.withOpacity(0.08);
-    }
-
+    final borderColor =
+        isDark ? const Color(0xFF2D3748) : const Color(0xFFE2E8F0);
     return Expanded(
       flex: flex,
-      child: _ClickableGridButton(
-        label: label,
-        subtitle: subtitle,
-        onTap: isEnabled && !_isProcessingAction ? onTap : () {},
-        textColor: effectiveTextColor,
-        fontWeight: fontWeight,
-        isDark: isDark,
-        bgColor: bgColor,
-        isEnabled: isEnabled && !_isProcessingAction,
-        fontSize: fontSize,
+      child: GestureDetector(
+        onTap: _isProcessingAction ? null : onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: borderColor, width: 0.5),
+              bottom: BorderSide(color: borderColor, width: 0.5),
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: fontWeight ?? FontWeight.w500,
+                  color:
+                      _isProcessingAction
+                          ? Colors.grey
+                          : (textColor ??
+                              (isDark ? Colors.white : Colors.black87)),
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2374,72 +2406,150 @@ class _ScoringScreenState extends State<ScoringScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: isDark ? const Color(0xFF0D1B2A) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.outfit(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag Handle
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: List.generate(8, (index) {
-                    int runs = index;
-                    String label =
-                        type == 'wide'
-                            ? 'WD + $runs'
-                            : type == 'no_ball'
-                            ? 'NB + $runs'
-                            : '$runs';
-                    return InkWell(
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _safeRecordBall(
-                          match,
-                          batsman,
-                          bowler,
-                          runs,
-                          type,
-                          scoringProv,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                child: Column(
+                  children: [
+                    Text(
+                      title.toUpperCase(),
+                      style: GoogleFonts.outfit(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.5,
+                        color: isDark ? Colors.white : AppTheme.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Select additional runs to record',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 4,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 1.3,
+                          ),
+                      itemCount: 8,
+                      itemBuilder: (context, index) {
+                        int runs = index;
+                        String label =
+                            type == 'wide'
+                                ? '+$runs'
+                                : type == 'no_ball'
+                                ? '+$runs'
+                                : '$runs';
+
+                        return InkWell(
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _safeRecordBall(
+                              match,
+                              batsman,
+                              bowler,
+                              runs,
+                              type,
+                              scoringProv,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors:
+                                    runs == 0
+                                        ? [
+                                          Colors.grey.shade400,
+                                          Colors.grey.shade600,
+                                        ]
+                                        : [
+                                          AppTheme.primaryGreen,
+                                          const Color(0xFF059669),
+                                        ],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (runs == 0
+                                          ? Colors.grey
+                                          : AppTheme.primaryGreen)
+                                      .withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  label,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                if (type == 'wide' || type == 'no_ball')
+                                  Text(
+                                    type == 'wide' ? 'WIDE' : 'N.B',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white70,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         );
                       },
-                      child: Container(
-                        width: 70,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppTheme.primaryGreen),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          label,
-                          style: GoogleFonts.inter(
-                            color: AppTheme.primaryGreen,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
@@ -2457,184 +2567,168 @@ class _ScoringScreenState extends State<ScoringScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: isDark ? const Color(0xFF0D1B2A) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'More runs',
-                  style: GoogleFonts.outfit(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag Handle
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children:
-                      [5, 7, 8].map((runs) {
-                        return InkWell(
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _safeRecordBall(
-                              match,
-                              batsman,
-                              bowler,
-                              runs,
-                              'normal',
-                              scoringProv,
-                            );
-                          },
-                          child: Container(
-                            width: 70,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              border: Border.all(color: AppTheme.primaryGreen),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              '$runs',
-                              style: GoogleFonts.inter(
-                                color: AppTheme.primaryGreen,
-                                fontWeight: FontWeight.bold,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                child: Column(
+                  children: [
+                    Text(
+                      'MORE RUNS',
+                      style: GoogleFonts.outfit(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.5,
+                        color: isDark ? Colors.white : AppTheme.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Select the specific runs scored',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children:
+                          [5, 7, 8].map((runs) {
+                            return Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.pop(ctx);
+                                    _safeRecordBall(
+                                      match,
+                                      batsman,
+                                      bowler,
+                                      runs,
+                                      'normal',
+                                      scoringProv,
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    height: 70,
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          AppTheme.primaryGreen,
+                                          Color(0xFF059669),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppTheme.primaryGreen
+                                              .withOpacity(0.3),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '$runs',
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                            );
+                          }).toList(),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  void _undoLastBall(MatchController matchProv, ScoringController scoringProv) {
-    if (matchProv.selectedMatch == null || _isProcessingAction) return;
+  Future<void> _undoLastBall(
+    MatchController matchProv,
+    ScoringController scoringProv,
+  ) async {
+    if (matchProv.selectedMatch == null) return;
+    if (_isProcessingAction) return;
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    showDialog(
+    final shouldUndo = await showDialog<bool>(
       context: context,
       builder:
-          (ctx) => Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
+          (ctx) => AlertDialog(
+            title: Text(
+              'Undo Last Ball',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
             ),
-            backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.history_rounded,
-                      color: Colors.red,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Undo Last Ball?',
-                    style: GoogleFonts.outfit(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'This will permanently remove the last recorded delivery. This action cannot be reversed.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      color: isDark ? Colors.white60 : Colors.black54,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text(
-                            'Cancel',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.white38 : Colors.grey[600],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            Navigator.pop(ctx);
-                            if (_isProcessingAction) return;
-
-                            setState(() => _isProcessingAction = true);
-                            try {
-                              await scoringProv.undoLastBall(
-                                matchProv.selectedMatch!,
-                              );
-                            } finally {
-                              if (mounted) {
-                                setState(() => _isProcessingAction = false);
-                              }
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text(
-                            'Confirm Undo',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+            content: const Text(
+              'Are you sure you want to undo the last ball? Only the scorer who added the ball can undo it.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
               ),
-            ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Undo'),
+              ),
+            ],
           ),
     );
+
+    if (shouldUndo == true) {
+      setState(() => _isProcessingAction = true);
+      try {
+        await scoringProv.undoLastBall(matchProv.selectedMatch!);
+      } finally {
+        if (mounted) {
+          setState(() => _isProcessingAction = false);
+        }
+      }
+    }
   }
 
   void _showWicketDialog(
@@ -2646,242 +2740,744 @@ class _ScoringScreenState extends State<ScoringScreen> {
   ) {
     String dismissalType = AppConstants.dismissalBowled;
 
-    Get.bottomSheet(
-      StatefulBuilder(
-        builder: (context, setDialogState) {
-          final sheetBg = isDark ? const Color(0xFF111827) : Colors.white;
-          final cardColor =
-              isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6);
-          final primaryRed = const Color(0xFFFF4D4D);
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              final bg =
+                  isDark ? const Color(0xFF111827) : const Color(0xFFFFFFFF);
+              final cardBg =
+                  isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6);
 
-          final dismissalOptions = [
-            {
-              'type': AppConstants.dismissalBowled,
-              'icon': Icons.sports_cricket,
-              'label': 'Bowled',
-            },
-            {
-              'type': AppConstants.dismissalCaught,
-              'icon': Icons.back_hand_rounded,
-              'label': 'Caught',
-            },
-            {
-              'type': AppConstants.dismissalRunOut,
-              'icon': Icons.directions_run_rounded,
-              'label': 'Run Out',
-            },
-            {
-              'type': AppConstants.dismissalStumped,
-              'icon': Icons.pan_tool_rounded,
-              'label': 'Stumped',
-            },
-            {
-              'type': AppConstants.dismissalLBW,
-              'icon': Icons.front_hand_rounded,
-              'label': 'LBW',
-            },
-            {
-              'type': AppConstants.dismissalHitWicket,
-              'icon': Icons.gavel_rounded,
-              'label': 'Hit Wicket',
-            },
-          ];
-
-          return SafeArea(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(32),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, -5),
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(28.0),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(32),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF0F5A).withOpacity(0.15),
+                        blurRadius: 40,
+                        spreadRadius: -10,
+                        offset: const Offset(0, 10),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.5 : 0.1),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                    border: Border.all(
+                      color:
+                          isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : Colors.black.withOpacity(0.05),
+                    ),
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Header Section
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: primaryRed.withOpacity(0.1),
+                          color: const Color(0xFFFF0F5A).withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(
-                          Icons.warning_rounded,
-                          color: primaryRed,
-                          size: 28,
+                        child: const Icon(
+                          Icons.sports_cricket_rounded,
+                          color: Color(0xFFFF0F5A),
+                          size: 32,
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: 20),
+                      Text(
+                        'WICKET!',
+                        style: GoogleFonts.outfit(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5,
+                          color: const Color(0xFFFF0F5A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Select dismissal type',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Grid Layout (2 Columns)
+                      GridView.count(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 2.4,
+                        children:
+                            [
+                              AppConstants.dismissalBowled,
+                              AppConstants.dismissalCaught,
+                              AppConstants.dismissalRunOut,
+                              AppConstants.dismissalStumped,
+                              AppConstants.dismissalLBW,
+                              AppConstants.dismissalHitWicket,
+                            ].map((type) {
+                              final isSelected = dismissalType == type;
+
+                              IconData iconData;
+                              switch (type) {
+                                case AppConstants.dismissalBowled:
+                                  iconData = Icons.sports_cricket_rounded;
+                                  break;
+                                case AppConstants.dismissalCaught:
+                                  iconData = Icons.front_hand_rounded;
+                                  break;
+                                case AppConstants.dismissalRunOut:
+                                  iconData = Icons.bolt_rounded;
+                                  break;
+                                case AppConstants.dismissalStumped:
+                                  iconData = Icons.back_hand_rounded;
+                                  break;
+                                case AppConstants.dismissalLBW:
+                                  iconData = Icons.straighten_rounded;
+                                  break;
+                                case AppConstants.dismissalHitWicket:
+                                  iconData = Icons.close_rounded;
+                                  break;
+                                default:
+                                  iconData = Icons.sports_cricket_rounded;
+                              }
+
+                              String displayText =
+                                  type.toUpperCase() == 'LBW'
+                                      ? 'LBW'
+                                      : type
+                                          .split('_')
+                                          .map((word) {
+                                            if (word.isEmpty) return word;
+                                            return word[0].toUpperCase() +
+                                                word.substring(1).toLowerCase();
+                                          })
+                                          .join(' ');
+
+                              return GestureDetector(
+                                onTap:
+                                    () => setDialogState(
+                                      () => dismissalType = type,
+                                    ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  decoration: BoxDecoration(
+                                    gradient:
+                                        isSelected
+                                            ? const LinearGradient(
+                                              colors: [
+                                                Color(0xFFFF0F5A),
+                                                Color(0xFFFF4B2B),
+                                              ],
+                                            )
+                                            : null,
+                                    color: isSelected ? null : cardBg,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color:
+                                          isSelected
+                                              ? Colors.transparent
+                                              : (isDark
+                                                  ? Colors.white.withOpacity(
+                                                    0.05,
+                                                  )
+                                                  : Colors.black.withOpacity(
+                                                    0.05,
+                                                  )),
+                                    ),
+                                    boxShadow:
+                                        isSelected
+                                            ? [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFFFF0F5A,
+                                                ).withOpacity(0.3),
+                                                blurRadius: 12,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ]
+                                            : [],
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        iconData,
+                                        size: 16,
+                                        color:
+                                            isSelected
+                                                ? Colors.white
+                                                : (isDark
+                                                    ? Colors.grey[400]
+                                                    : Colors.grey[600]),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        displayText,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight:
+                                              isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w600,
+                                          color:
+                                              isSelected
+                                                  ? Colors.white
+                                                  : (isDark
+                                                      ? Colors.grey[300]
+                                                      : Colors.grey[800]),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Action Buttons
+                      Row(
                         children: [
-                          Text(
-                            'Wicket!',
-                            style: GoogleFonts.outfit(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                              color: isDark ? Colors.white : Colors.black87,
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey,
+                                side: BorderSide(
+                                  color:
+                                      isDark
+                                          ? Colors.grey[800]!
+                                          : Colors.grey[300]!,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: Text(
+                                'Cancel',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
-                          Text(
-                            'Select the type of dismissal',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                if (dismissalType ==
+                                    AppConstants.dismissalRunOut) {
+                                  _showRunOutFlow(
+                                    match,
+                                    batsman,
+                                    bowler,
+                                    scoringProv,
+                                    isDark,
+                                  );
+                                } else if (dismissalType ==
+                                        AppConstants.dismissalCaught ||
+                                    dismissalType ==
+                                        AppConstants.dismissalStumped) {
+                                  _showFielderSelectionSheet(
+                                    match,
+                                    batsman,
+                                    bowler,
+                                    scoringProv,
+                                    isDark,
+                                    dismissalType,
+                                  );
+                                } else {
+                                  _safeRecordBall(
+                                    match,
+                                    batsman,
+                                    bowler,
+                                    0,
+                                    'normal',
+                                    scoringProv,
+                                    isWicket: true,
+                                    dismissalType: dismissalType,
+                                    dismissedPlayerId: batsman.id,
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF0F5A),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: Text(
+                                'Confirm',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => Get.back(),
-                        icon: Icon(Icons.close, color: Colors.grey[400]),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 32),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio: 0.85,
-                        ),
-                    itemCount: dismissalOptions.length,
-                    itemBuilder: (context, index) {
-                      final opt = dismissalOptions[index];
-                      final isSelected = dismissalType == opt['type'];
-                      final optionType = opt['type'] as String;
+                ),
+              );
+            },
+          ),
+    );
+  }
 
-                      return GestureDetector(
-                        onTap:
-                            () => setDialogState(
-                              () => dismissalType = optionType,
-                            ),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          decoration: BoxDecoration(
-                            color: isSelected ? primaryRed : cardColor,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color:
-                                  isSelected ? primaryRed : Colors.transparent,
-                              width: 2,
-                            ),
-                            boxShadow:
-                                isSelected
-                                    ? [
-                                      BoxShadow(
-                                        color: primaryRed.withOpacity(0.3),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ]
-                                    : null,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
+  void _showRunOutFlow(
+    MatchModel match,
+    PlayerModel striker,
+    PlayerModel bowler,
+    ScoringController scoringProv,
+    bool isDark,
+  ) {
+    int currentStep = 1;
+    PlayerModel? selectedFielder;
+    PlayerModel? dismissedBatsman;
+    PlayerModel? newBatsman;
+
+    final fieldingTeamPlayers =
+        matchController.players.values.where((p) {
+          return p.teamId == (match.currentInnings == 'A' ? 'B' : 'A') ||
+              (p.teamId == '' &&
+                  ((match.currentInnings == 'A' &&
+                          match.teamBPlayers.contains(p.id)) ||
+                      (match.currentInnings == 'B' &&
+                          match.teamAPlayers.contains(p.id))));
+        }).toList();
+
+    final currentBatsmen =
+        [
+          if (match.currentBatsmanId != null)
+            matchController.players[match.currentBatsmanId],
+          if (match.currentNonStrikerId != null)
+            matchController.players[match.currentNonStrikerId],
+        ].whereType<PlayerModel>().toList();
+
+    final battingTeamPlayers =
+        matchController.players.values.where((p) {
+          return p.teamId == match.currentInnings ||
+              (p.teamId == '' &&
+                  ((match.currentInnings == 'A' &&
+                          match.teamAPlayers.contains(p.id)) ||
+                      (match.currentInnings == 'B' &&
+                          match.teamBPlayers.contains(p.id))));
+        }).toList();
+
+    final maxBatBalls =
+        match.customRulesEnabled
+            ? (match.maxBattingOvers ?? 2) * match.ballsPerOver
+            : 999;
+    final remainingBatsmen =
+        battingTeamPlayers
+            .where(
+              (p) =>
+                  !p.isOut &&
+                  p.id != match.currentBatsmanId &&
+                  p.id != match.currentNonStrikerId &&
+                  p.canBatWithLimit(maxBatBalls),
+            )
+            .toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (ctx) => StatefulBuilder(
+            builder: (context, setStepState) {
+              final bg =
+                  isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC);
+              final cardBg =
+                  isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFFFF);
+
+              return Container(
+                height: MediaQuery.of(context).size.height * 0.85,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(32),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Header & Progress
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        children: [
+                          Row(
                             children: [
-                              Icon(
-                                opt['icon'] as IconData,
-                                color: isSelected ? Colors.white : Colors.grey,
-                                size: 28,
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.bolt_rounded,
+                                  color: Colors.red,
+                                  size: 24,
+                                ),
                               ),
-                              const SizedBox(height: 10),
-                              Text(
-                                opt['label'] as String,
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  fontWeight:
-                                      isSelected
-                                          ? FontWeight.bold
-                                          : FontWeight.w600,
-                                  color:
-                                      isSelected
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white70
-                                              : Colors.black54),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'RUN OUT FLOW',
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1,
+                                        color:
+                                            isDark
+                                                ? Colors.white
+                                                : Colors.black87,
+                                      ),
+                                    ),
+                                    Text(
+                                      currentStep == 1
+                                          ? 'Select the fielder responsible'
+                                          : (currentStep == 2
+                                              ? 'Who was dismissed?'
+                                              : 'Select incoming batsman'),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Close button
+                              IconButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                icon: const Icon(Icons.close_rounded),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.grey.withOpacity(0.1),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 40),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Get.back();
-                        if (dismissalType == AppConstants.dismissalCaught ||
-                            dismissalType == AppConstants.dismissalRunOut ||
-                            dismissalType == AppConstants.dismissalStumped) {
-                          _showFielderSelectionSheet(
-                            match,
-                            batsman,
-                            bowler,
-                            scoringProv,
-                            isDark,
-                            dismissalType,
-                          );
-                        } else {
-                          _safeRecordBall(
-                            match,
-                            batsman,
-                            bowler,
-                            0,
-                            'normal',
-                            scoringProv,
-                            isWicket: true,
-                            dismissalType: dismissalType,
-                            dismissedPlayerId: batsman.id,
-                          );
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryRed,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: Text(
-                        'CONFIRM WICKET',
-                        style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
+                          const SizedBox(height: 24),
+                          // Step Indicator
+                          Row(
+                            children:
+                                [1, 2, 3].map((s) {
+                                  final isCompleted = s < currentStep;
+                                  final isActive = s == currentStep;
+                                  return Expanded(
+                                    child: Container(
+                                      height: 4,
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            isCompleted
+                                                ? AppTheme.primaryGreen
+                                                : (isActive
+                                                    ? AppTheme.primaryGreen
+                                                        .withOpacity(0.5)
+                                                    : Colors.grey.withOpacity(
+                                                      0.2,
+                                                    )),
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 24),
+
+                    // Step Content
+                    Expanded(
+                      child: IndexedStack(
+                        index: currentStep - 1,
+                        children: [
+                          // Step 1: Fielders
+                          _buildRunOutPlayerList(
+                            fieldingTeamPlayers,
+                            selectedFielder,
+                            isDark,
+                            cardBg,
+                            (p) {
+                              setStepState(() {
+                                selectedFielder = p;
+                                currentStep = 2;
+                              });
+                            },
+                          ),
+                          // Step 2: Dismissed Batsman
+                          _buildRunOutPlayerList(
+                            currentBatsmen,
+                            dismissedBatsman,
+                            isDark,
+                            cardBg,
+                            (p) {
+                              setStepState(() {
+                                dismissedBatsman = p;
+
+                                if (remainingBatsmen.length == 1) {
+                                  // Auto-select last remaining player
+                                  newBatsman = remainingBatsmen.first;
+                                  Navigator.pop(ctx);
+                                  UIUtils.showSuccess(
+                                    'Next batsman auto selected: ${newBatsman!.name}',
+                                  );
+                                  _safeRecordBall(
+                                    match,
+                                    striker,
+                                    bowler,
+                                    0,
+                                    'normal',
+                                    scoringProv,
+                                    isWicket: true,
+                                    dismissalType:
+                                        'Run Out (${selectedFielder?.name})',
+                                    dismissedPlayerId: dismissedBatsman?.id,
+                                    fielderId: selectedFielder?.id,
+                                    newIncomingBatsmanId: newBatsman?.id,
+                                  );
+                                } else if (remainingBatsmen.isEmpty) {
+                                  // No more players available
+                                  Navigator.pop(ctx);
+                                  _safeRecordBall(
+                                    match,
+                                    striker,
+                                    bowler,
+                                    0,
+                                    'normal',
+                                    scoringProv,
+                                    isWicket: true,
+                                    dismissalType:
+                                        'Run Out (${selectedFielder?.name})',
+                                    dismissedPlayerId: dismissedBatsman?.id,
+                                    fielderId: selectedFielder?.id,
+                                  );
+                                } else {
+                                  // Multiple players left, show manual selection
+                                  currentStep = 3;
+                                }
+                              });
+                            },
+                            subtitleBuilder:
+                                (p) =>
+                                    p.id == match.currentBatsmanId
+                                        ? 'Striker'
+                                        : 'Non-Striker',
+                          ),
+                          // Step 3: New Batsman
+                          _buildRunOutPlayerList(
+                            remainingBatsmen,
+                            newBatsman,
+                            isDark,
+                            cardBg,
+                            (p) {
+                              setStepState(() {
+                                newBatsman = p;
+                              });
+                              // Auto confirm after 3rd selection
+                              Navigator.pop(ctx);
+                              _safeRecordBall(
+                                match,
+                                striker,
+                                bowler,
+                                0,
+                                'normal',
+                                scoringProv,
+                                isWicket: true,
+                                dismissalType:
+                                    'Run Out (${selectedFielder?.name})',
+                                dismissedPlayerId: dismissedBatsman?.id,
+                                fielderId: selectedFielder?.id,
+                                newIncomingBatsmanId: newBatsman?.id,
+                              );
+                              // We don't need to manually select new batsman here because recordBall handles it
+                              // But wait, the user asked to select next batsman here.
+                              // Actually recordBall will set current_batsman_id to null,
+                              // and the screen will naturally show the picker.
+                              // But if we want to do it in one flow, we should pass it or call it after.
+                            },
+                            emptyMessage:
+                                match.lastPlayerCanPlay &&
+                                        remainingBatsmen.isEmpty
+                                    ? 'No more players. Last player continues!'
+                                    : 'All out! No more batsmen available.',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+    );
+  }
+
+  Widget _buildRunOutPlayerList(
+    List<PlayerModel> players,
+    PlayerModel? selected,
+    bool isDark,
+    Color cardBg,
+    Function(PlayerModel) onSelect, {
+    String? Function(PlayerModel)? subtitleBuilder,
+    String? emptyMessage,
+  }) {
+    if (players.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.group_off_rounded,
+              size: 64,
+              color: Colors.grey.withOpacity(0.3),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              emptyMessage ?? 'No players available',
+              style: GoogleFonts.inter(
+                color: Colors.grey,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          );
-        },
-      ),
-      isScrollControlled: true,
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      itemCount: players.length,
+      itemBuilder: (context, i) {
+        final p = players[i];
+        final isSelected = selected?.id == p.id;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              color: isSelected ? AppTheme.primaryGreen : cardBg,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(
+                color:
+                    isSelected
+                        ? AppTheme.primaryGreen
+                        : (isDark
+                            ? Colors.white.withOpacity(0.05)
+                            : Colors.black.withOpacity(0.05)),
+              ),
+            ),
+            child: ListTile(
+              onTap: () => onSelect(p),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              leading: CircleAvatar(
+                backgroundColor:
+                    isSelected
+                        ? Colors.white.withOpacity(0.2)
+                        : AppTheme.primaryGreen.withOpacity(0.1),
+                child: Text(
+                  p.name.isNotEmpty ? p.name[0].toUpperCase() : 'P',
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : AppTheme.primaryGreen,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              title: Text(
+                p.name,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.bold,
+                  color:
+                      isSelected
+                          ? Colors.white
+                          : (isDark ? Colors.white : Colors.black87),
+                ),
+              ),
+              subtitle:
+                  subtitleBuilder != null
+                      ? Text(
+                        subtitleBuilder(p)!,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: isSelected ? Colors.white70 : Colors.grey,
+                        ),
+                      )
+                      : null,
+              trailing:
+                  isSelected
+                      ? const Icon(
+                        Icons.check_circle_rounded,
+                        color: Colors.white,
+                      )
+                      : Icon(
+                        Icons.chevron_right_rounded,
+                        color: isDark ? Colors.grey[700] : Colors.grey[400],
+                      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2904,238 +3500,78 @@ class _ScoringScreenState extends State<ScoringScreen> {
         }).toList();
 
     FocusScope.of(context).unfocus();
-
-    String searchQuery = '';
-
-    Get.bottomSheet(
-      StatefulBuilder(
-        builder: (context, setDialogState) {
-          final sheetBg = isDark ? const Color(0xFF111827) : Colors.white;
-          final cardColor =
-              isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6);
-          final primaryGreen = const Color(0xFF00C853);
-
-          final filteredPlayers =
-              fieldingTeamPlayers.where((p) {
-                return p.name.toLowerCase().contains(searchQuery.toLowerCase());
-              }).toList();
-
-          return SafeArea(
-            child: Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.8,
-              ),
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(32),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white12 : Colors.black12,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Select Fielder',
-                            style: GoogleFonts.outfit(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
-                          ),
-                          Text(
-                            baseDismissalType.toUpperCase(),
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1,
-                              color: primaryGreen,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: primaryGreen.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '${fieldingTeamPlayers.length} Players',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: primaryGreen,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    onChanged: (val) => setDialogState(() => searchQuery = val),
-                    style: GoogleFonts.inter(
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Search player...',
-                      hintStyle: GoogleFonts.inter(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                      filled: true,
-                      fillColor: cardColor,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child:
-                        filteredPlayers.isEmpty
-                            ? Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 40),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.person_search_rounded,
-                                    size: 48,
-                                    color: Colors.grey[400],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'No player found',
-                                    style: GoogleFonts.inter(
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                            : ListView.separated(
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.only(bottom: 32),
-                              itemCount: filteredPlayers.length,
-                              separatorBuilder:
-                                  (context, index) => const SizedBox(height: 8),
-                              itemBuilder: (ctx, i) {
-                                final p = filteredPlayers[i];
-                                return Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: () {
-                                      Get.back();
-                                      _safeRecordBall(
-                                        match,
-                                        batsman,
-                                        bowler,
-                                        0,
-                                        'normal',
-                                        scoringProv,
-                                        isWicket: true,
-                                        dismissalType:
-                                            '$baseDismissalType (${p.name})',
-                                        dismissedPlayerId: batsman.id,
-                                        fielderId: p.id,
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        border: Border.all(
-                                          color:
-                                              isDark
-                                                  ? Colors.white.withOpacity(
-                                                    0.05,
-                                                  )
-                                                  : Colors.black.withOpacity(
-                                                    0.05,
-                                                  ),
-                                        ),
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 22,
-                                            backgroundColor: primaryGreen
-                                                .withOpacity(0.1),
-                                            child: Text(
-                                              p.name.isNotEmpty
-                                                  ? p.name[0].toUpperCase()
-                                                  : 'P',
-                                              style: GoogleFonts.outfit(
-                                                color: primaryGreen,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  p.name,
-                                                  style: GoogleFonts.inter(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w600,
-                                                    color:
-                                                        isDark
-                                                            ? Colors.white
-                                                            : Colors.black87,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  'Fielder',
-                                                  style: GoogleFonts.inter(
-                                                    fontSize: 12,
-                                                    color: Colors.grey,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          Icon(
-                                            Icons.chevron_right_rounded,
-                                            color: Colors.grey[400],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+    showModalBottomSheet(
+      context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: isDark ? const Color(0xFF0D1B2A) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (ctx, scrollController) {
+            return Column(
+              children: [
+                const SizedBox(height: 16),
+                Text(
+                  'Select Fielder (${baseDismissalType.toUpperCase()})',
+                  style: GoogleFonts.outfit(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: fieldingTeamPlayers.length,
+                    itemBuilder: (ctx, i) {
+                      final p = fieldingTeamPlayers[i];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.primaryGreen.withOpacity(
+                            0.2,
+                          ),
+                          child: Text(
+                            p.name.isNotEmpty ? p.name[0].toUpperCase() : 'P',
+                            style: const TextStyle(
+                              color: AppTheme.primaryGreen,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          p.name,
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+                        ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _safeRecordBall(
+                            match,
+                            batsman,
+                            bowler,
+                            0,
+                            'normal',
+                            scoringProv,
+                            isWicket: true,
+                            dismissalType: '$baseDismissalType (${p.name})',
+                            dismissedPlayerId: batsman.id,
+                            fielderId: p.id,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -3355,7 +3791,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     String tossDecision,
   ) async {
     try {
-      Get.back();
+      Get.back(); // Close bottom sheet
 
       UIUtils.showLoading('Setting up rematch...');
 
@@ -3366,126 +3802,54 @@ class _ScoringScreenState extends State<ScoringScreen> {
         currentUserId: authController.userId!,
       );
 
-      Get.back();
+      Get.back(); // Hide loading
 
       if (newMatchId != null) {
-        Get.off(
-          () => ScoringScreen(matchId: newMatchId),
-          preventDuplicates: false,
-        );
+        // Navigate to new scoring screen
+        Get.off(() => ScoringScreen(matchId: newMatchId));
         UIUtils.showSuccess('Rematch started!');
       }
     } catch (e) {
-      Get.back();
+      Get.back(); // Hide loading
       UIUtils.showError('Failed to start rematch: $e');
     }
   }
-}
 
-/// Helper widget for the scoring buttons with click animation
-class _ClickableGridButton extends StatefulWidget {
-  final String label;
-  final String? subtitle;
-  final VoidCallback onTap;
-  final Color textColor;
-  final FontWeight? fontWeight;
-  final bool isDark;
-  final Color? bgColor;
-  final bool isEnabled;
-  final double? fontSize;
-
-  const _ClickableGridButton({
-    required this.label,
-    this.subtitle,
-    required this.onTap,
-    required this.textColor,
-    this.fontWeight,
-    required this.isDark,
-    this.bgColor,
-    required this.isEnabled,
-    this.fontSize,
-  });
-
-  @override
-  State<_ClickableGridButton> createState() => _ClickableGridButtonState();
-}
-
-class _ClickableGridButtonState extends State<_ClickableGridButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-    );
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 0.94,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _handleTapDown(TapDownDetails details) {
-    if (widget.isEnabled) _controller.forward();
-  }
-
-  void _handleTapUp(TapUpDetails details) {
-    if (widget.isEnabled) _controller.reverse();
-  }
-
-  void _handleTapCancel() {
-    if (widget.isEnabled) _controller.reverse();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor =
-        widget.isDark ? const Color(0xFF2D3748) : const Color(0xFFE2E8F0);
-
-    return GestureDetector(
-      onTapDown: _handleTapDown,
-      onTapUp: _handleTapUp,
-      onTapCancel: _handleTapCancel,
-      onTap: widget.onTap,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Container(
-          decoration: BoxDecoration(
-            color: widget.bgColor ?? Colors.transparent,
-            border: Border.all(color: borderColor, width: 0.5),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                widget.label,
-                style: GoogleFonts.outfit(
-                  fontSize: widget.fontSize ?? 20,
-                  fontWeight: widget.fontWeight ?? FontWeight.w700,
-                  color: widget.textColor,
-                ),
-              ),
-              if (widget.subtitle != null)
-                Text(
-                  widget.subtitle!,
-                  style: GoogleFonts.inter(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: widget.textColor.withOpacity(0.6),
-                  ),
-                ),
-            ],
-          ),
+  Widget _buildSelectMOTMPlaceholder(MatchModel match, bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
         ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.vibrantOrange.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.emoji_events_rounded,
+              color: AppTheme.vibrantOrange,
+              size: 32,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Calculating Man of the Match...',
+            style: GoogleFonts.outfit(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+        ],
       ),
     );
   }

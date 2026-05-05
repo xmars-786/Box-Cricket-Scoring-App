@@ -49,10 +49,10 @@ class AppUser {
       isPreRegistered: data['is_pre_registered'] ?? false,
       profileImageUrl:
           data['profile_image'] ?? data['profile_image_url'], // Support both
-      totalRuns: data['total_runs'] ?? 0,
-      totalWickets: data['total_wickets'] ?? 0,
-      matchesPlayed: data['matches_played'] ?? 0,
-      highestScore: data['highest_score'] ?? 0,
+      totalRuns: (data['total_runs'] as num?)?.toInt() ?? 0,
+      totalWickets: (data['total_wickets'] as num?)?.toInt() ?? 0,
+      matchesPlayed: (data['matches_played'] as num?)?.toInt() ?? 0,
+      highestScore: (data['highest_score'] as num?)?.toInt() ?? 0,
       createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
       lastLogin: (data['last_login'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -110,4 +110,46 @@ class AppUser {
 
   bool get isAdmin => role == 'admin';
   bool get isPlayer => role == 'player';
+
+  Map<String, dynamic> toMap() {
+    return {
+      'uid': uid,
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'role': role,
+      'is_approved': isApproved,
+      'is_pre_registered': isPreRegistered,
+      'profile_image': profileImageUrl,
+      'total_runs': totalRuns,
+      'total_wickets': totalWickets,
+      'matches_played': matchesPlayed,
+      'highest_score': highestScore,
+      'created_at': createdAt.toIso8601String(),
+      'last_login': lastLogin.toIso8601String(),
+    };
+  }
+
+  factory AppUser.fromMap(Map<String, dynamic> data) {
+    return AppUser(
+      uid: data['uid'] ?? '',
+      name: data['name'] ?? '',
+      email: data['email'] ?? '',
+      phone: data['phone'] ?? '',
+      role: data['role'] ?? 'player',
+      isApproved: data['is_approved'] ?? false,
+      isPreRegistered: data['is_pre_registered'] ?? false,
+      profileImageUrl: data['profile_image'],
+      totalRuns: (data['total_runs'] as num?)?.toInt() ?? 0,
+      totalWickets: (data['total_wickets'] as num?)?.toInt() ?? 0,
+      matchesPlayed: (data['matches_played'] as num?)?.toInt() ?? 0,
+      highestScore: (data['highest_score'] as num?)?.toInt() ?? 0,
+      createdAt: data['created_at'] != null
+          ? DateTime.parse(data['created_at'])
+          : DateTime.now(),
+      lastLogin: data['last_login'] != null
+          ? DateTime.parse(data['last_login'])
+          : DateTime.now(),
+    );
+  }
 }

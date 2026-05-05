@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../constants/app_constants.dart';
 import '../utils/ui_utils.dart';
+import 'auth_controller.dart';
 
 class RulesController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -13,9 +14,10 @@ class RulesController extends GetxController {
 
   // ── Custom over rules ───────────────────────────────
   final RxBool customRulesEnabled = false.obs;
-  final RxBool lastPlayerCanPlay = false.obs;
+  final RxBool lastPlayerCanPlay = true.obs;
   final RxInt maxBattingOvers = 2.obs;
   final RxInt maxBowlingOvers = 3.obs;
+  final RxBool isTournamentEnabled = true.obs;
 
   final RxBool isLoading = true.obs;
 
@@ -37,11 +39,12 @@ class RulesController extends GetxController {
         noBallRuns.value = data['no_ball_runs'] ?? 1;
         freeHitEnabled.value = data['no_ball_free_hit'] ?? true;
         customRulesEnabled.value = data['custom_rules_enabled'] ?? false;
-        lastPlayerCanPlay.value = data['last_player_can_play'] ?? false;
+        lastPlayerCanPlay.value = data['last_player_can_play'] ?? true;
         maxBattingOvers.value =
             data['max_batting_overs'] ?? AppConstants.maxBatsmanOvers;
         maxBowlingOvers.value =
             data['max_bowling_overs'] ?? AppConstants.maxBowlerOvers;
+        isTournamentEnabled.value = data['tournament_mode_enabled'] ?? true;
       }
       isLoading.value = false;
     });
@@ -55,8 +58,15 @@ class RulesController extends GetxController {
     bool? lastPlayerPlay,
     int? maxBatting,
     int? maxBowling,
+    bool? tournamentEnabled,
   }) async {
     try {
+      final authController = Get.find<AuthController>();
+      if (!(authController.currentUser?.isAdmin ?? false)) {
+        UIUtils.showError('Permission denied: Admin role required');
+        return;
+      }
+      
       await _firestore
           .collection(AppConstants.settingsCollection)
           .doc(AppConstants.rulesDoc)
@@ -68,6 +78,8 @@ class RulesController extends GetxController {
         if (lastPlayerPlay != null) 'last_player_can_play': lastPlayerPlay,
         if (maxBatting != null) 'max_batting_overs': maxBatting,
         if (maxBowling != null) 'max_bowling_overs': maxBowling,
+        if (tournamentEnabled != null)
+          'tournament_mode_enabled': tournamentEnabled,
       }, SetOptions(merge: true));
       // UIUtils.showSuccess('Rules updated successfully!');
     } catch (e) {

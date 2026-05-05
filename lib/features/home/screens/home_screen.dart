@@ -6,13 +6,17 @@ import '../../../core/controllers/auth_controller.dart';
 import '../../../core/controllers/match_controller.dart';
 import '../../../core/controllers/theme_controller.dart';
 import '../../../core/controllers/connectivity_controller.dart';
+import '../../../core/controllers/rules_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/models/match_model.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../history/widgets/match_history_card.dart';
 import '../../match/screens/match_detail_screen.dart';
 import '../../match/widgets/match_card_widget.dart';
-import '../../scoring/screens/scoring_screen.dart';
-import '../../../core/constants/app_constants.dart';
+import '../../match/utils/match_dialogs.dart';
+import '../../explore/controllers/player_profile_controller.dart';
+import '../widgets/pwa_install_banner.dart';
 
 /// Home screen with live matches, my matches, and navigation using GetX.
 class HomeScreen extends StatefulWidget {
@@ -30,11 +34,19 @@ class _HomeScreenState extends State<HomeScreen> {
   final ThemeController themeController = Get.find<ThemeController>();
   final ConnectivityController connectivityController =
       Get.find<ConnectivityController>();
+  final RulesController rulesController = Get.find<RulesController>();
   final ScrollController _myMatchesScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+
+    // Initialize profile stats for current user IMMEDIATELY to avoid build-time errors
+    final userId = authController.userId;
+    if (userId != null) {
+      Get.put(PlayerProfileController(playerId: userId), tag: 'home_profile');
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
     });
@@ -87,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+              const PwaInstallBanner(),
               Expanded(
                 child: IndexedStack(
                   index: _currentIndex,
@@ -119,7 +132,16 @@ class _HomeScreenState extends State<HomeScreen> {
             elevation: 0,
             height: 64,
             selectedIndex: _currentIndex,
-            onDestinationSelected: (i) => setState(() => _currentIndex = i),
+            onDestinationSelected: (i) {
+              setState(() => _currentIndex = i);
+              if (i == 3) {
+                // Refresh profile stats when switching to profile tab
+                final userId = authController.userId;
+                if (userId != null && Get.isRegistered<PlayerProfileController>(tag: 'home_profile')) {
+                  Get.find<PlayerProfileController>(tag: 'home_profile').onRefresh();
+                }
+              }
+            },
             indicatorColor: AppTheme.primaryGreen.withOpacity(0.1),
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
             destinations: [
@@ -175,6 +197,10 @@ class _HomeScreenState extends State<HomeScreen> {
       onRefresh: () async {
         matchController.listenToLiveMatches();
         await matchController.loadCompletedMatches(refresh: true);
+        final userId = authController.userId;
+        if (userId != null && Get.isRegistered<PlayerProfileController>(tag: 'home_profile')) {
+          await Get.find<PlayerProfileController>(tag: 'home_profile').onRefresh();
+        }
       },
       color: AppTheme.wicketRed,
       child: CustomScrollView(
@@ -404,6 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
             floating: true,
             automaticallyImplyLeading: false,
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 20)),
           Obx(() {
             if (matchController.isHistoryLoading &&
                 matchController.completedMatches.isEmpty) {
@@ -446,15 +473,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildMatchListItem(MatchModel match, bool isDark) {
     final isAdmin = authController.currentUser?.isAdmin ?? false;
-    final isScorer = match.scorerIds.contains(authController.userId) || isAdmin;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: MatchCardWidget(
+      child: MatchHistoryCard(
         match: match,
         isDark: isDark,
         isAdmin: isAdmin,
-        isScorer: isScorer,
         onDelete: () => _confirmDelete(match),
       ),
     );
@@ -472,10 +497,10 @@ class _HomeScreenState extends State<HomeScreen> {
           floating: true,
           automaticallyImplyLeading: false,
           actions: [
-            IconButton(
-              icon: const Icon(Icons.history),
-              onPressed: () => Get.toNamed(AppRoutes.matchHistory),
-            ),
+            // IconButton(
+            //   icon: const Icon(Icons.history),
+            //   onPressed: () => Get.toNamed(AppRoutes.matchHistory),
+            // ),
           ],
         ),
         SliverToBoxAdapter(
@@ -530,6 +555,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   () => Get.toNamed(AppRoutes.matchHistory),
                 ),
                 const SizedBox(height: 12),
+                // Tournament Access (Role-based)
+                Obx(() {
+                  if (!rulesController.isTournamentEnabled.value)
+                    return const SizedBox.shrink();
+
+                  final isAdmin = authController.currentUser?.isAdmin ?? false;
+                  return Column(
+                    children: [
+                      _buildQuickAction(
+                        isDark,
+                        Icons.emoji_events_outlined,
+                        isAdmin ? 'Tournament Management' : 'Tournaments',
+                        isAdmin
+                            ? 'Organize leagues and knockouts'
+                            : 'Explore active tournaments and rankings',
+                        Colors.amber,
+                        () => Get.toNamed(AppRoutes.tournaments),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  );
+                }),
                 if (authController.currentUser?.isAdmin == true) ...[
                   _buildQuickAction(
                     isDark,
@@ -538,6 +585,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     'Create and manage your teams',
                     const Color(0xFF2196F3),
                     () => Get.toNamed(AppRoutes.teams),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickAction(
+                    isDark,
+                    Icons.auto_fix_high_rounded,
+                    'Repair Match Results',
+                    'Fix incorrect win/loss margins in history',
+                    Colors.deepPurple,
+                    () => matchController.repairAllCompletedMatchResults(),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -559,31 +615,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ─── Delete Confirmation Dialog ────────────────────────
   Future<void> _confirmDelete(MatchModel match) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
-            title: Text(
-              'Delete Match',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-            ),
-            content: Text(
-              'Are you sure you want to delete this match permanently? This action cannot be undone and will erase all match logs and player stats associated with it.',
-              style: GoogleFonts.inter(fontSize: 14),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text('Delete'),
-              ),
-            ],
-          ),
-    );
+    final confirm = await MatchDialogs.showDeleteMatchDialog(context);
 
     if (confirm == true) {
       await matchController.deleteMatch(match.id);
@@ -802,25 +834,60 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _buildProfileStat(
-                                'Matches',
-                                user.matchesPlayed.toString(),
-                              ),
-                              _buildStatDivider(),
-                              _buildProfileStat(
-                                'Runs',
-                                user.totalRuns.toString(),
-                              ),
-                              _buildStatDivider(),
-                              _buildProfileStat(
-                                'Wickets',
-                                user.totalWickets.toString(),
-                              ),
-                            ],
-                          ),
+                          child: Obx(() {
+                            // Safety check for initialization
+                            if (!Get.isRegistered<PlayerProfileController>(
+                              tag: 'home_profile',
+                            )) {
+                              return const SizedBox(height: 40);
+                            }
+
+                            final profileCtrl =
+                                Get.find<PlayerProfileController>(
+                                  tag: 'home_profile',
+                                );
+
+                            final stats = profileCtrl.aggregatedStats.value;
+                            final bool isStillLoading = profileCtrl.isLoading.value && stats == null;
+
+                            if (isStillLoading) {
+                              return const SizedBox(
+                                height: 40,
+                                child: Center(
+                                  child: SizedBox(
+                                    height: 15,
+                                    width: 15,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _buildProfileStat(
+                                  'Matches',
+                                  stats?.matches.toString() ?? '0',
+                                ),
+                                _buildStatDivider(),
+                                _buildProfileStat(
+                                  'Runs',
+                                  stats?.runs.toString() ?? '0',
+                                ),
+                                _buildStatDivider(),
+                                _buildProfileStat(
+                                  'Wickets',
+                                  stats?.wickets.toString() ?? '0',
+                                ),
+                                _buildStatDivider(),
+                                _buildHotRecordStat(isDark),
+                              ],
+                            );
+                          }),
                         ),
                       ],
                     ),
@@ -855,6 +922,21 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icons.admin_panel_settings_rounded,
                       'Admin Dashboard',
                       onTap: () => Get.toNamed(AppRoutes.admin),
+                    ),
+                    _buildSettingItem(
+                      isDark,
+                      Icons.emoji_events_rounded,
+                      'Tournament Mode',
+                      trailing: Obx(
+                        () => Switch(
+                          value: rulesController.isTournamentEnabled.value,
+                          onChanged:
+                              (val) => rulesController.updateRules(
+                                tournamentEnabled: val,
+                              ),
+                          activeColor: AppTheme.primaryGreen,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -912,6 +994,27 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildHotRecordStat(bool isDark) {
+    return InkWell(
+      onTap: () => Get.toNamed(AppRoutes.hotRecord),
+      child: Column(
+        children: [
+          const Icon(Icons.whatshot_rounded, color: Colors.orange, size: 24),
+          const SizedBox(height: 2),
+          Text(
+            'HOT RECORD',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1064,6 +1167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 fontSize: 14,
                 color: isDark ? Colors.white38 : Colors.grey[400],
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
