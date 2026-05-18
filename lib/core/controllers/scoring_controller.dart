@@ -72,7 +72,7 @@ class ScoringController extends GetxController {
         .doc(_matchId.value)
         .collection(AppConstants.ballLogsCollection)
         .orderBy('timestamp', descending: true)
-        .limit(60) // fetch more to cover both innings
+        .limit(500) // fetch more to cover full match (up to 80+ overs)
         .snapshots()
         .listen((snapshot) {
           final allLogs =

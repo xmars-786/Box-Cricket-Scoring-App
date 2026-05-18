@@ -1,10 +1,13 @@
+import 'package:x_cricket/core/constants/app_constants.dart';
 import 'package:x_cricket/core/controllers/auth_controller.dart';
+import 'package:x_cricket/core/controllers/rules_controller.dart';
 import 'package:x_cricket/core/controllers/theme_controller.dart';
 import 'package:x_cricket/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:x_cricket/core/widgets/modern_app_bar.dart';
 
 /// User profile screen with settings and account management using GetX.
 class ProfileScreen extends StatelessWidget {
@@ -17,11 +20,8 @@ class ProfileScreen extends StatelessWidget {
     final ThemeController themeController = Get.find<ThemeController>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Profile',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-        ),
+      appBar: const ModernAppBar(
+        title: 'Profile',
       ),
       body: SafeArea(
         child: Obx(() {
@@ -70,13 +70,32 @@ class ProfileScreen extends StatelessWidget {
                                 : null,
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        user?.name ?? 'User',
-                        style: GoogleFonts.outfit(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(width: 32), // Spacer for balance
+                          Text(
+                            user?.name ?? 'User',
+                            style: GoogleFonts.outfit(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit_note_rounded,
+                              color: Colors.white70,
+                              size: 24,
+                            ),
+                            onPressed:
+                                () => _showEditNameDialog(
+                                  context,
+                                  authController,
+                                  user?.name ?? '',
+                                ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Container(
@@ -162,9 +181,14 @@ class ProfileScreen extends StatelessWidget {
                     Icons.privacy_tip_outlined,
                     'Privacy Policy',
                     () async {
-                      final url = Uri.parse('https://orange-waterfall-a462.mammu2425.workers.dev/privacy_policy.html');
+                      final url = Uri.parse(
+                        'https://apnascore.mohammadvepari01.workers.dev/privacy_policy',
+                      );
                       if (await canLaunchUrl(url)) {
-                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                        await launchUrl(
+                          url,
+                          mode: LaunchMode.externalApplication,
+                        );
                       }
                     },
                   ),
@@ -193,9 +217,71 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+                // Delete Account
+                Obx(() {
+                  final RulesController rulesController =
+                      Get.find<RulesController>();
+                  if (rulesController.isApkApproved.value) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return TextButton(
+                    onPressed: () {
+                      Get.dialog(
+                        AlertDialog(
+                          backgroundColor:
+                              isDark ? const Color(0xFF1B263B) : Colors.white,
+                          title: Text(
+                            'Delete Account',
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                          content: Text(
+                            'Are you sure you want to delete your account? This action is permanent and all your data will be lost.',
+                            style: GoogleFonts.inter(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Get.back(),
+                              child: Text(
+                                'Cancel',
+                                style: GoogleFonts.inter(color: Colors.grey),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Get.back();
+                                authController.deleteAccount();
+                              },
+                              child: Text(
+                                'Delete',
+                                style: GoogleFonts.inter(
+                                  color: AppTheme.wicketRed,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    child: Text(
+                      'Delete Account',
+                      style: GoogleFonts.inter(
+                        color: AppTheme.wicketRed.withOpacity(0.8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }),
                 const SizedBox(height: 32),
                 Text(
-                  'DEVELOPED BY Mammu v1.0.0',
+                  '${AppConstants.developedBy} ${AppConstants.appVersion}',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -297,6 +383,89 @@ class ProfileScreen extends StatelessWidget {
           const Spacer(),
           trailing,
         ],
+      ),
+    );
+  }
+
+  void _showEditNameDialog(
+    BuildContext context,
+    AuthController authController,
+    String currentName,
+  ) {
+    final nameController = TextEditingController(text: currentName);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: isDark ? const Color(0xFF1B263B) : Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Edit Name',
+                style: GoogleFonts.outfit(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  hintText: 'Enter your name',
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF0F172A) : Colors.grey[50],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Get.back(),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.inter(color: Colors.grey),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (nameController.text.trim().isNotEmpty) {
+                        authController.updateProfile(
+                          name: nameController.text.trim(),
+                        );
+                        Get.back();
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryGreen,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

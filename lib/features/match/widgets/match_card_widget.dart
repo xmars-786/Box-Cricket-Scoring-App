@@ -231,25 +231,85 @@ class MatchCardWidget extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    // Row(
-                    //   children: [
-                    //     Icon(
-                    //       Icons.location_on_rounded,
-                    //       size: 12,
-                    //       color: isDark ? Colors.white38 : Colors.grey[500],
-                    //     ),
-                    //     const SizedBox(width: 4),
-                    //     Text(
-                    //       match.groundName,
-                    //       style: GoogleFonts.inter(
-                    //         fontSize: 12,
-                    //         color: isDark ? Colors.white38 : Colors.grey[500],
-                    //         fontWeight: FontWeight.w500,
-                    //       ),
-                    //     ),
-                    //   ],
-                    // ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (match.startedAt != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  isDark
+                                      ? Colors.white.withOpacity(0.05)
+                                      : Colors.black.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.timer_outlined,
+                                  size: 11,
+                                  color:
+                                      isDark ? Colors.white60 : Colors.black54,
+                                ),
+                                const SizedBox(width: 4),
+                                StreamBuilder<int>(
+                                  stream: Stream.periodic(const Duration(seconds: 30), (x) => x),
+                                  builder: (context, snapshot) {
+                                    return Text(
+                                      _getLiveDuration(match.startedAt!),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        color: isDark ? Colors.white60 : Colors.black54,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                isDark
+                                    ? Colors.white.withOpacity(0.05)
+                                    : Colors.black.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.visibility_outlined,
+                                size: 11,
+                                color: isDark ? Colors.white60 : Colors.black54,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${match.viewerCount} WATCHING',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  color:
+                                      isDark ? Colors.white60 : Colors.black54,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -266,6 +326,15 @@ class MatchCardWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _getLiveDuration(DateTime startedAt) {
+    final diff = DateTime.now().difference(startedAt);
+    if (diff.inHours > 0) {
+      return 'Live for ${diff.inHours}h ${diff.inMinutes % 60}m';
+    } else {
+      return 'Live for ${diff.inMinutes}m';
+    }
   }
 
   Widget _buildLiveScoreSummary() {

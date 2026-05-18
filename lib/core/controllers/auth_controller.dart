@@ -294,6 +294,44 @@ class AuthController extends GetxController {
     Get.offAllNamed(AppRoutes.login);
   }
 
+  // ─── Delete Account ─────────────────────────────────────
+  Future<bool> deleteAccount() async {
+    try {
+      _isLoading.value = true;
+      final uid = _auth.currentUser?.uid;
+      if (uid == null) return false;
+
+      // 1. Delete Firestore data
+      await _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(uid)
+          .delete();
+
+      // 2. Delete Auth user
+      await _auth.currentUser?.delete();
+
+      _currentUser.value = null;
+      _isLoading.value = false;
+      UIUtils.showSuccess('Account deleted successfully.');
+      Get.offAllNamed(AppRoutes.login);
+      return true;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') {
+        UIUtils.showError(
+          'Please sign out and sign in again before deleting your account for security.',
+        );
+      } else {
+        UIUtils.showError(_getAuthErrorMessage(e.code));
+      }
+      _isLoading.value = false;
+      return false;
+    } catch (e) {
+      UIUtils.showError(e.toString());
+      _isLoading.value = false;
+      return false;
+    }
+  }
+
   // ─── Update User Profile ───────────────────────────────
   Future<void> updateProfile({String? name, String? role}) async {
     if (_currentUser.value == null) return;

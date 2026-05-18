@@ -48,161 +48,169 @@ class _HistoryFilterSheetState extends State<HistoryFilterSheet> {
       ),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(36)),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.1) : Colors.transparent,
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(isDark ? 0.6 : 0.2),
             blurRadius: 40,
+            spreadRadius: 5,
             offset: const Offset(0, -10),
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 12),
-          Center(
-            child: Container(
-              width: 48,
-              height: 5,
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white12 : Colors.black12,
-                borderRadius: BorderRadius.circular(2.5),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 48,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.black12,
+                  borderRadius: BorderRadius.circular(2.5),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 24),
+            const SizedBox(height: 24),
 
-          // Header with Reset
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Filter Matches',
-                        style: GoogleFonts.outfit(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? Colors.white : Colors.black87,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      Text(
-                        'Refine your history view',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: isDark ? Colors.white38 : Colors.black38,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _status = null;
-                      _isTournament = null;
-                      _startDate = null;
-                      _endDate = null;
-                    });
-                  },
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    backgroundColor: Colors.red.withOpacity(0.1),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: Text(
-                    'Reset',
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.redAccent,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          Flexible(
-            child: SingleChildScrollView(
+            // Header with Reset
+            Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  // 1. Match Status
-                  _buildSectionLabel('MATCH STATUS', isDark),
-                  const SizedBox(height: 16),
-                  _buildStatusGrid(isDark),
-
-                  const SizedBox(height: 32),
-
-                  // 2. Date Range
-                  _buildSectionLabel('DATE RANGE', isDark),
-                  const SizedBox(height: 16),
-                  _buildDateRangePicker(isDark),
-
-                  const SizedBox(height: 40),
-
-                  // Apply Button
-                  Container(
-                    width: double.infinity,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryGreen.withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 5),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Filter Matches',
+                          style: GoogleFonts.outfit(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? Colors.white : Colors.black87,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        Text(
+                          'Refine your history view',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                          ),
                         ),
                       ],
                     ),
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context, {
-                          'status': _status,
-                          'isTournament': _isTournament,
-                          'startDate': _startDate,
-                          'endDate': _endDate,
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryGreen,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        elevation: 0,
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _status = null;
+                        _isTournament = null;
+                        _startDate = null;
+                        _endDate = null;
+                      });
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                      child: Text(
-                        'Apply Filters',
-                        style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
+                      backgroundColor: Colors.red.withOpacity(0.1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Reset',
+                      style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.redAccent,
+                        fontSize: 13,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
                 ],
               ),
             ),
-          ),
-        ],
+
+            const SizedBox(height: 24),
+
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 1. Match Status
+                    _buildSectionLabel('MATCH STATUS', isDark),
+                    const SizedBox(height: 16),
+                    _buildStatusGrid(isDark),
+
+                    const SizedBox(height: 32),
+
+                    // 2. Date Range
+                    _buildSectionLabel('DATE RANGE', isDark),
+                    const SizedBox(height: 16),
+                    _buildDateRangePicker(isDark),
+
+                    const SizedBox(height: 40),
+
+                    // Apply Button
+                    Container(
+                      width: double.infinity,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primaryGreen.withOpacity(0.3),
+                            blurRadius: 15,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context, {
+                            'status': _status,
+                            'isTournament': _isTournament,
+                            'startDate': _startDate,
+                            'endDate': _endDate,
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryGreen,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          'Apply Filters',
+                          style: GoogleFonts.outfit(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -258,9 +266,18 @@ class _HistoryFilterSheetState extends State<HistoryFilterSheet> {
               isSelected
                   ? AppTheme.primaryGreen
                   : (isDark
-                      ? Colors.white.withOpacity(0.05)
+                      ? Colors.white.withOpacity(0.04)
                       : Colors.black.withOpacity(0.05)),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color:
+                isSelected
+                    ? AppTheme.primaryGreen
+                    : (isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.transparent),
+            width: 1.5,
+          ),
           boxShadow:
               isSelected
                   ? [
@@ -303,8 +320,8 @@ class _HistoryFilterSheetState extends State<HistoryFilterSheet> {
                 hasDate
                     ? AppTheme.primaryGreen.withOpacity(0.5)
                     : (isDark
-                        ? Colors.white.withOpacity(0.05)
-                        : Colors.black.withOpacity(0.05)),
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.08)),
             width: 1.5,
           ),
           boxShadow:

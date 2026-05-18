@@ -21,6 +21,7 @@ import '../../../core/models/partnership_model.dart';
 import '../../../core/controllers/tournament_controller.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/last_ball_popup.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 /// Scoring screen for scorers to record ball-by-ball updates.
 /// Features run buttons, wicket, extras, undo, and auto strike change.
@@ -207,37 +208,24 @@ class _ScoringScreenState extends State<ScoringScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-            onPressed: () async {
-              final shouldPop = await _showExitConfirmation(context, isDark);
-              if (shouldPop && mounted) {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                } else {
-                  Get.offAllNamed(AppRoutes.home);
+        appBar: ModernAppBar(
+          title: 'Live Scoring',
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+              color: isDark ? Colors.white : AppTheme.primaryDark,
+              onPressed: () async {
+                final shouldPop = await _showExitConfirmation(context, isDark);
+                if (shouldPop && context.mounted) {
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop();
+                  } else {
+                    Get.offAllNamed(AppRoutes.home);
+                  }
                 }
-              }
-            },
+              },
+            ),
           ),
-          title: Text(
-            'Live Scoring',
-            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-          ),
-          // actions: [
-          //   // Undo button
-          //   Obx(
-          //     () => IconButton(
-          //       icon: const Icon(Icons.undo),
-          //       tooltip: 'Undo Last Ball',
-          //       onPressed:
-          //           scoringController.ballLogs.isEmpty
-          //               ? null
-          //               : () => _undoLastBall(matchController, scoringController),
-          //     ),
-          //   ),
-          // ],
         ),
         body: SafeArea(
           child: Obx(() {

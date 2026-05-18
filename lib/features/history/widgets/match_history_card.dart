@@ -97,7 +97,9 @@ class MatchHistoryCard extends StatelessWidget {
           _buildStatusBadge(),
           const Spacer(),
           Text(
-            DateFormat('MMM dd, yyyy').format(match.createdAt),
+            DateFormat(
+              'MMM dd, yyyy • hh:mm a',
+            ).format(match.startedAt ?? match.createdAt),
             style: GoogleFonts.inter(
               fontSize: 10,
               fontWeight: FontWeight.w600,

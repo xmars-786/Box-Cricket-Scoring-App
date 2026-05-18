@@ -7,6 +7,7 @@ import '../../../core/controllers/team_controller.dart';
 import '../../../core/controllers/auth_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/models/team_model.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class CreateTournamentScreen extends StatefulWidget {
   const CreateTournamentScreen({super.key});
@@ -40,24 +41,16 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios_new_rounded,
-            size: 20,
-            color: isDark ? Colors.white : Colors.black,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          'SETUP TOURNAMENT',
-          style: GoogleFonts.outfit(
-            fontWeight: FontWeight.w800,
-            fontSize: 14,
-            letterSpacing: 1.5,
-            color: isDark ? Colors.white : Colors.black,
+      appBar: ModernAppBar(
+        title: 'SETUP TOURNAMENT',
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 20,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+            onPressed: () => Navigator.of(context).pop(),
           ),
         ),
       ),

@@ -54,16 +54,13 @@ class MatchDetailController extends GetxController {
     } else if (ball.isNoBall) {
       animationType = 'no_ball';
       HapticFeedback.lightImpact();
-    } else if (ball.runs == 0 && !ball.isExtra) {
-      // Funny animation for dot ball?
-      // animationType = 'dot';
     }
 
     if (animationType != null) {
       currentAnimation.value = animationType;
 
-      // Auto hide after 3 seconds for more "funny" impact
-      Timer(const Duration(milliseconds: 3000), () {
+      // Auto hide after 3.5 seconds
+      Timer(const Duration(milliseconds: 3500), () {
         if (currentAnimation.value == animationType) {
           currentAnimation.value = null;
         }

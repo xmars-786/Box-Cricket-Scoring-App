@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/ui_utils.dart';
 import '../../explore/screens/player_profile_screen.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class TeamManagementScreen extends StatefulWidget {
   const TeamManagementScreen({super.key});
@@ -28,11 +29,12 @@ class _TeamManagementScreenState extends State<TeamManagementScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? AppTheme.primaryDark : const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
-          _buildSliverAppBar(isDark),
+          const ModernSliverAppBar(
+            title: 'TEAMS',
+          ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
@@ -79,67 +81,12 @@ class _TeamManagementScreenState extends State<TeamManagementScreen> {
           }),
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
-        ),
       ),
       floatingActionButton: _buildModernFAB(context, isDark),
     );
   }
 
-  Widget _buildSliverAppBar(bool isDark) {
-    return SliverAppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      expandedHeight: 100,
-      pinned: true,
-      backgroundColor: AppTheme.primaryGreen,
-      elevation: 0,
-      iconTheme: const IconThemeData(color: Colors.white),
-      flexibleSpace: FlexibleSpaceBar(
-        centerTitle: true,
-        title: Text(
-          'TEAMS',
-          style: GoogleFonts.outfit(
-            fontWeight: FontWeight.w900,
-            fontSize: 22,
-            letterSpacing: 2,
-            color: Colors.white,
-          ),
-        ),
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppTheme.primaryGreen,
-                    const Color(0xFF00B894).withOpacity(0.8),
-                  ],
-                ),
-              ),
-            ),
-            // Subtle geometric shape
-            Positioned(
-              top: -30,
-              right: -30,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.1),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildSectionIndicator() {
     return Container(
@@ -765,36 +712,38 @@ class _TeamEditorSheetState extends State<_TeamEditorSheet> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              width: double.infinity,
-              height: 60,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryGreen.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: _saveTeam,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryGreen,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  elevation: 0,
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: Container(
+                width: double.infinity,
+                height: 60,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.primaryGreen.withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  widget.team == null ? 'CREATE TEAM' : 'UPDATE TEAM',
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
+                child: ElevatedButton(
+                  onPressed: _saveTeam,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    widget.team == null ? 'CREATE TEAM' : 'UPDATE TEAM',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
                   ),
                 ),
               ),

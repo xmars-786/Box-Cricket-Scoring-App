@@ -10,6 +10,7 @@ import '../../../core/models/match_model.dart';
 import '../widgets/match_history_card.dart';
 import '../widgets/history_filter_sheet.dart';
 import '../widgets/history_skeleton.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class MatchHistoryScreen extends StatefulWidget {
   const MatchHistoryScreen({super.key});
@@ -146,22 +147,40 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
-                  _buildPremiumHeader(isDark),
+                  const ModernSliverAppBar(title: 'Match History'),
 
                   SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: _buildSearchAndFilterRow(isDark),
-                        ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                         _buildScrollableStatsRow(isDark),
                         const SizedBox(height: 16),
                       ],
                     ),
                   ),
+
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _SliverHeaderDelegate(
+                      height: 72,
+                      child: ClipRect(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            color: bgColor.withOpacity(0.8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 10,
+                            ),
+                            child: _buildSearchAndFilterRow(isDark),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
                   _buildActiveFiltersSliver(isDark),
 
@@ -196,7 +215,7 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
                     }
 
                     return SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
@@ -229,41 +248,6 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPremiumHeader(bool isDark) {
-    return SliverAppBar(
-      pinned: true,
-      backgroundColor:
-          isDark
-              ? const Color(0xFF070B14).withOpacity(0.9)
-              : const Color(0xFFF8FAFC).withOpacity(0.9),
-      elevation: 0,
-      centerTitle: true,
-      leading: IconButton(
-        icon: Icon(
-          Icons.arrow_back_rounded,
-          color: isDark ? Colors.white : Colors.black87,
-        ),
-        onPressed: () => Get.back(),
-      ),
-      title: Text(
-        'Match History',
-        style: GoogleFonts.outfit(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: isDark ? Colors.white : Colors.black87,
-          letterSpacing: 0.5,
-        ),
-      ),
-      surfaceTintColor: Colors.transparent,
-      flexibleSpace: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(color: Colors.transparent),
-        ),
       ),
     );
   }
@@ -318,13 +302,13 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
             decoration: BoxDecoration(
               color: AppTheme.primaryGreen,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.primaryGreen.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              // boxShadow: [
+              //   BoxShadow(
+              //     color: AppTheme.primaryGreen.withOpacity(0.3),
+              //     blurRadius: 12,
+              //     offset: const Offset(0, 4),
+              //   ),
+              // ],
             ),
             child: const Icon(
               Icons.tune_rounded,
@@ -703,5 +687,31 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
     if (confirm == true) {
       await matchController.deleteMatch(match.id);
     }
+  }
+}
+
+class _SliverHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final double height;
+
+  _SliverHeaderDelegate({required this.child, required this.height});
+
+  @override
+  double get minExtent => height;
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return child;
+  }
+
+  @override
+  bool shouldRebuild(covariant _SliverHeaderDelegate oldDelegate) {
+    return oldDelegate.child != child || oldDelegate.height != height;
   }
 }

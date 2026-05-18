@@ -10,6 +10,7 @@ import '../../../core/models/match_model.dart';
 import '../../../core/models/player_model.dart';
 import '../../../core/models/partnership_model.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../match/widgets/motm_award_card.dart';
 import '../../explore/screens/player_profile_screen.dart';
 
@@ -134,37 +135,49 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
 
     // Sort to show those who have batted first, then those yet to bat
     // Use the actual batting sequence as the primary order key
-    teamABatsmen.sort((a, b) {
-      final aBatted = a.ballsFaced > 0 || a.isOut;
-      final bBatted = b.ballsFaced > 0 || b.isOut;
-      if (aBatted && !bBatted) return -1;
-      if (!aBatted && bBatted) return 1;
+    bool hasBatted(PlayerModel p, String teamId) {
+      // Basic check: did they face a ball or get out?
+      if (p.ballsFaced > 0 || p.isOut) return true;
 
-      // If both played, follow actual batting sequence
+      // Participation check: are they in the recorded batting sequence?
+      final seq = teamId == 'A' ? teamASeq : teamBSeq;
+      if (seq.contains(p.id)) return true;
+
+      // Live check: are they currently at the crease?
+      if (match.status == AppConstants.matchLive &&
+          match.currentInnings == teamId) {
+        return p.id == match.currentBatsmanId ||
+            p.id == match.currentNonStrikerId;
+      }
+      return false;
+    }
+
+    final teamABatted = teamABatsmen.where((p) => hasBatted(p, 'A')).toList();
+    final teamADidNotBat =
+        teamABatsmen.where((p) => !teamABatted.contains(p)).toList();
+
+    final teamBBatted = teamBBatsmen.where((p) => hasBatted(p, 'B')).toList();
+    final teamBDidNotBat =
+        teamBBatsmen.where((p) => !teamBBatted.contains(p)).toList();
+
+    // Sort Batted lists
+    teamABatted.sort((a, b) {
       final idxA = teamASeq.indexOf(a.id);
       final idxB = teamASeq.indexOf(b.id);
       if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
       if (idxA != -1) return -1;
       if (idxB != -1) return 1;
-
-      // Stable sort: keep original squad order for those who haven't batted
       return match.teamAPlayers
           .indexOf(a.id)
           .compareTo(match.teamAPlayers.indexOf(b.id));
     });
 
-    teamBBatsmen.sort((a, b) {
-      final aBatted = a.ballsFaced > 0 || a.isOut;
-      final bBatted = b.ballsFaced > 0 || b.isOut;
-      if (aBatted && !bBatted) return -1;
-      if (!aBatted && bBatted) return 1;
-
+    teamBBatted.sort((a, b) {
       final idxA = teamBSeq.indexOf(a.id);
       final idxB = teamBSeq.indexOf(b.id);
       if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
       if (idxA != -1) return -1;
       if (idxB != -1) return 1;
-
       return match.teamBPlayers
           .indexOf(a.id)
           .compareTo(match.teamBPlayers.indexOf(b.id));
@@ -203,11 +216,11 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     });
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
       children: [
         // ── Result (at the top) ──────────
         if (match.result != null) ...[
-          _buildResultCard(isDark),
+          // _buildResultCard(isDark),
           const SizedBox(height: 16),
         ],
 
@@ -317,7 +330,8 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
         // Team A Innings
         _buildInningsHeader(match.teamAName, match.teamAScore, isDark),
         const SizedBox(height: 8),
-        _buildBattingTable(teamABatsmen, isDark),
+        _buildBattingTable(teamABatted, isDark),
+        _buildDidNotBat(teamADidNotBat, isDark),
         const SizedBox(height: 8),
         _buildExtrasRow(match.teamAScore, isDark),
         const SizedBox(height: 16),
@@ -332,7 +346,8 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
         // Team B Innings
         _buildInningsHeader(match.teamBName, match.teamBScore, isDark),
         const SizedBox(height: 8),
-        _buildBattingTable(teamBBatsmen, isDark),
+        _buildBattingTable(teamBBatted, isDark),
+        _buildDidNotBat(teamBDidNotBat, isDark),
         const SizedBox(height: 8),
         _buildExtrasRow(match.teamBScore, isDark),
         const SizedBox(height: 16),
@@ -651,6 +666,94 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
             _dataCell(player.strikeRate.toStringAsFixed(1), 44),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDidNotBat(List<PlayerModel> players, bool isDark) {
+    if (players.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12, bottom: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:
+            isDark
+                ? Colors.white.withOpacity(0.03)
+                : Colors.black.withOpacity(0.02),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color:
+              isDark
+                  ? Colors.white.withOpacity(0.05)
+                  : Colors.black.withOpacity(0.05),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.person_off_rounded,
+                size: 14,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'DID NOT BAT',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children:
+                players
+                    .map(
+                      (p) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              isDark ? const Color(0xFF253750) : Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(
+                            color:
+                                isDark
+                                    ? Colors.white.withOpacity(0.05)
+                                    : Colors.black.withOpacity(0.03),
+                          ),
+                        ),
+                        child: Text(
+                          p.name,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+          ),
+        ],
       ),
     );
   }

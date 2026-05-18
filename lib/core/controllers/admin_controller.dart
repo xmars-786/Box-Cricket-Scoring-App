@@ -103,11 +103,12 @@ class AdminController extends GetxController {
       _isLoading.value = true;
 
       // ── Uniqueness check ─────────────────────────────────
-      final existing = await _firestore
-          .collection(AppConstants.usersCollection)
-          .where('phone', isEqualTo: phone)
-          .limit(1)
-          .get();
+      final existing =
+          await _firestore
+              .collection(AppConstants.usersCollection)
+              .where('phone', isEqualTo: phone)
+              .limit(1)
+              .get();
 
       if (existing.docs.isNotEmpty) {
         _isLoading.value = false;
@@ -123,15 +124,16 @@ class AdminController extends GetxController {
       // ── Create Firestore pre-registration doc only ────────
       // No Firebase Auth account — the player creates their own password
       // when they sign up via the app. The pre-reg doc will be migrated then.
-      final newDocRef = _firestore.collection(AppConstants.usersCollection).doc();
+      final newDocRef =
+          _firestore.collection(AppConstants.usersCollection).doc();
 
       final user = AppUser(
         uid: newDocRef.id,
         name: name,
         phone: phone,
         role: AppConstants.rolePlayer,
-        isApproved: true,       // pre-approved by admin
-        isPreRegistered: true,  // flag: no Auth account yet
+        isApproved: true, // pre-approved by admin
+        isPreRegistered: true, // flag: no Auth account yet
       );
 
       await newDocRef.set(user.toFirestore());
@@ -144,7 +146,10 @@ class AdminController extends GetxController {
 
   Future<void> deleteUser(String uid) async {
     try {
-      await _firestore.collection(AppConstants.usersCollection).doc(uid).delete();
+      await _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(uid)
+          .delete();
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete user: $e');
     }

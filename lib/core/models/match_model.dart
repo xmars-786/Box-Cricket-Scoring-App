@@ -59,6 +59,8 @@ class MatchModel {
   final List<String> teamABowlingOrder;
   final List<String> teamBBowlingOrder;
   final Map<String, dynamic>? manOfTheMatchMap;
+  final int viewerCount; // Live watchers
+  final int totalViews; // Cumulative views
   MatchModel({
     required this.id,
     required this.title,
@@ -115,6 +117,8 @@ class MatchModel {
     List<String>? teamABowlingOrder,
     List<String>? teamBBowlingOrder,
     this.manOfTheMatchMap,
+    this.viewerCount = 0,
+    this.totalViews = 0,
   }) : teamAScore = teamAScore ?? MatchScore(),
        teamBScore = teamBScore ?? MatchScore(),
        teamAPartnerships = teamAPartnerships ?? [],
@@ -192,6 +196,8 @@ class MatchModel {
       teamABowlingOrder: List<String>.from(data['team_a_bowling_order'] ?? []),
       teamBBowlingOrder: List<String>.from(data['team_b_bowling_order'] ?? []),
       manOfTheMatchMap: data['man_of_the_match_map'],
+      viewerCount: (data['viewer_count'] as num?)?.toInt() ?? 0,
+      totalViews: (data['total_views'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -252,6 +258,8 @@ class MatchModel {
       'team_a_bowling_order': teamABowlingOrder,
       'team_b_bowling_order': teamBBowlingOrder,
       'man_of_the_match_map': manOfTheMatchMap,
+      'viewer_count': viewerCount,
+      'total_views': totalViews,
     };
   }
 
@@ -306,6 +314,8 @@ class MatchModel {
     List<String>? teamABowlingOrder,
     List<String>? teamBBowlingOrder,
     Map<String, dynamic>? manOfTheMatchMap,
+    int? viewerCount,
+    int? totalViews,
   }) {
     return MatchModel(
       id: id,
@@ -364,6 +374,8 @@ class MatchModel {
       teamABowlingOrder: teamABowlingOrder ?? this.teamABowlingOrder,
       teamBBowlingOrder: teamBBowlingOrder ?? this.teamBBowlingOrder,
       manOfTheMatchMap: manOfTheMatchMap ?? this.manOfTheMatchMap,
+      viewerCount: viewerCount ?? this.viewerCount,
+      totalViews: totalViews ?? this.totalViews,
     );
   }
 

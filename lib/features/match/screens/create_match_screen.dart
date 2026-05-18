@@ -18,6 +18,7 @@ import '../../../core/controllers/tournament_controller.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/ui_utils.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class CreateMatchScreen extends StatefulWidget {
   const CreateMatchScreen({super.key});
@@ -180,60 +181,24 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? AppTheme.primaryDark : const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            _buildSliverAppBar(isDark),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _buildProgressHeader(isDark),
-                  const SizedBox(height: 32),
-                  Form(key: _formKey, child: _buildCurrentStep(isDark)),
-                  const SizedBox(height: 100),
-                ]),
-              ),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          const ModernSliverAppBar(title: 'NEW MATCH'),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                _buildProgressHeader(isDark),
+                const SizedBox(height: 32),
+                Form(key: _formKey, child: _buildCurrentStep(isDark)),
+                const SizedBox(height: 100),
+              ]),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       bottomNavigationBar: _buildBottomControls(isDark),
-    );
-  }
-
-  Widget _buildSliverAppBar(bool isDark) {
-    return SliverAppBar(
-      expandedHeight: 100,
-      pinned: true,
-      backgroundColor: AppTheme.primaryGreen,
-      elevation: 0,
-      iconTheme: const IconThemeData(color: Colors.white),
-      flexibleSpace: FlexibleSpaceBar(
-        centerTitle: true,
-        title: Text(
-          'NEW MATCH',
-          style: GoogleFonts.outfit(
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-            letterSpacing: 2,
-            color: Colors.white,
-          ),
-        ),
-        background: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.primaryGreen,
-                const Color(0xFF00B894).withOpacity(0.8),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -338,89 +303,91 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 
   Widget _buildBottomControls(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.primaryDark : Colors.white,
-        border: Border(
-          top: BorderSide(
-            color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.primaryDark : Colors.white,
+          border: Border(
+            top: BorderSide(
+              color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+            ),
           ),
         ),
-      ),
-      child: Row(
-        children: [
-          if (_currentStep > 0) ...[
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => setState(() => _currentStep--),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  side: BorderSide(
-                    color: isDark ? Colors.white10 : Colors.black12,
-                  ),
-                ),
-                child: Text(
-                  'BACK',
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
-          if (!(_currentStep == 0 && _tournamentId != null))
-            Expanded(
-              flex: 2,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.primaryGreen.withOpacity(0.3),
-                      blurRadius: 15,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: ElevatedButton(
-                  onPressed: _onStepContinue,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen,
-                    foregroundColor: Colors.white,
+        child: Row(
+          children: [
+            if (_currentStep > 0) ...[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => setState(() => _currentStep--),
+                  style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    elevation: 0,
+                    side: BorderSide(
+                      color: isDark ? Colors.white10 : Colors.black12,
+                    ),
                   ),
-                  child:
-                      _isCreatingMatch
-                          ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                          : Text(
-                            _currentStep == 2 ? 'CREATE MATCH' : 'CONTINUE',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1,
-                            ),
-                          ),
+                  child: Text(
+                    'BACK',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
                 ),
               ),
-            ),
-        ],
+              const SizedBox(width: 12),
+            ],
+            if (!(_currentStep == 0 && _tournamentId != null))
+              Expanded(
+                flex: 2,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryGreen.withOpacity(0.3),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: _onStepContinue,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    child:
+                        _isCreatingMatch
+                            ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                            : Text(
+                              _currentStep == 2 ? 'CREATE MATCH' : 'CONTINUE',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

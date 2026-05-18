@@ -54,6 +54,6 @@ class AppConstants {
 
   // ─── App Metadata ───────────────────────────────────────
   static const String appName = 'Apna Score';
-  static const String developedBy = 'DEVELOPED BY Mammu';
+  static const String developedBy = 'DEVELOPED BY XMARS';
   static const String appVersion = 'v1.0.0';
 }

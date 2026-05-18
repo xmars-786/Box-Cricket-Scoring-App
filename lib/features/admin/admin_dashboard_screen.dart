@@ -8,6 +8,7 @@ import '../../core/controllers/auth_controller.dart';
 import '../../core/models/user_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/ui_utils.dart';
+import '../../core/widgets/modern_app_bar.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   final AdminController adminController = Get.put(AdminController());
@@ -24,83 +25,73 @@ class AdminDashboardScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor:
             isDark ? AppTheme.primaryDark : const Color(0xFFF8FAFC),
-        body: SafeArea(
-          child: NestedScrollView(
+        body: NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) {
-            return [
-              SliverAppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                pinned: true,
-                floating: true,
-                elevation: innerBoxIsScrolled ? 4 : 0,
-                backgroundColor: isDark ? AppTheme.primaryDark : Colors.white,
-                foregroundColor:
-                    isDark ? Colors.white : const Color(0xFF1A1A2E),
-                centerTitle: true,
-                title: Text(
-                  'Admin Panel',
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 20,
-                    letterSpacing: 1,
-                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
-                  ),
-                ),
-                actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: IconButton(
-                      onPressed: () => _showAddQuickPlayerDialog(context),
-                      icon: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryGreen.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.person_add_alt_1_rounded,
-                          color: AppTheme.primaryGreen,
-                          size: 20,
+              return [
+                ModernSliverAppBar(
+                  title: 'Admin Panel',
+                  pinned: true,
+                  floating: true,
+                  actions: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: IconButton(
+                        onPressed: () => _showAddQuickPlayerDialog(context),
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryGreen.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.person_add_alt_1_rounded,
+                            color: AppTheme.primaryGreen,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-                bottom: TabBar(
-                  indicatorColor: AppTheme.primaryGreen,
-                  indicatorWeight: 3,
-                  labelColor: AppTheme.primaryGreen,
-                  unselectedLabelColor:
-                      isDark ? Colors.white60 : Colors.black45,
-                  labelStyle: GoogleFonts.inter(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    letterSpacing: 0.5,
-                  ),
-                  tabs: const [
-                    Tab(text: 'APPROVALS'),
-                    Tab(text: 'USERS'),
-                    Tab(text: 'RULES'),
                   ],
+                  bottom: TabBar(
+                    indicatorColor: AppTheme.primaryGreen,
+                    indicatorWeight: 3,
+                    labelColor: AppTheme.primaryGreen,
+                    unselectedLabelColor:
+                        isDark ? Colors.white60 : Colors.black45,
+                    labelStyle: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                    ),
+                    tabs: [
+                      Obx(
+                        () => Tab(
+                          text:
+                              'APPROVALS (${adminController.pendingUsers.length})',
+                        ),
+                      ),
+                      Obx(
+                        () => Tab(
+                          text: 'PLAYERS (${adminController.allUsers.length})',
+                        ),
+                      ),
+                      const Tab(text: 'RULES'),
+                    ],
+                  ),
                 ),
-              ),
-            ];
-          },
-          body: TabBarView(
-            children: [
-              _buildPendingUsersList(isDark),
-              _buildAllUsersList(isDark),
-              _buildGlobalRulesSettings(context, isDark),
-            ],
+              ];
+            },
+            body: TabBarView(
+              children: [
+                _buildPendingUsersList(isDark),
+                _buildAllUsersList(isDark),
+                _buildGlobalRulesSettings(context, isDark),
+              ],
+            ),
           ),
-        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   // ─── Pending Users List ────────────────────────────────
   Widget _buildPendingUsersList(bool isDark) {
@@ -640,7 +631,9 @@ class AdminDashboardScreen extends StatelessWidget {
                 ),
                 value: rulesController.isTournamentEnabled.value,
                 activeColor: AppTheme.primaryGreen,
-                onChanged: (val) => rulesController.updateRules(tournamentEnabled: val),
+                onChanged:
+                    (val) =>
+                        rulesController.updateRules(tournamentEnabled: val),
               ),
             ),
           ),

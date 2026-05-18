@@ -9,6 +9,7 @@ import '../../../core/models/tournament_model.dart';
 import '../../../core/models/user_model.dart';
 import '../../../core/models/player_stats_model.dart';
 import '../controllers/player_profile_controller.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class PlayerProfileScreen extends StatefulWidget {
   final String playerId;
@@ -109,28 +110,10 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen>
     return Obx(() {
       final user = _profileController.user.value;
 
-      return SliverAppBar(
+      return ModernSliverAppBar(
+        title: '',
         expandedHeight: 220,
         pinned: true,
-        backgroundColor: backgroundColor,
-        elevation: 0,
-        leading: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: CircleAvatar(
-            backgroundColor:
-                isDark
-                    ? Colors.white.withOpacity(0.05)
-                    : Colors.black.withOpacity(0.05),
-            child: IconButton(
-              icon: Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: textColor,
-                size: 18,
-              ),
-              onPressed: () => Get.back(),
-            ),
-          ),
-        ),
         flexibleSpace: FlexibleSpaceBar(
           background: Stack(
             fit: StackFit.expand,
@@ -290,7 +273,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen>
         items = [
           StatItem('Mat', stats.matches.toString()),
           StatItem('Inns', stats.battingInnings.toString()),
-          StatItem('NO', stats.notOuts.toString()),
+          // StatItem('NO', stats.notOuts.toString()),
           StatItem('Runs', stats.runs.toString()),
           StatItem(
             'HS',
@@ -306,6 +289,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen>
           StatItem('Ducks', stats.ducks.toString()),
           StatItem('Won', stats.wins.toString()),
           StatItem('Loss', stats.losses.toString()),
+          StatItem('MOTM', stats.manOfMatchAwards.toString()),
         ];
       } else {
         items = [
@@ -324,6 +308,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen>
           StatItem('WD', stats.wideBalls.toString()),
           StatItem('NB', stats.noBalls.toString()),
           StatItem('Dots', stats.dotBalls.toString()),
+          StatItem('MOTM', stats.manOfMatchAwards.toString()),
         ];
       }
 

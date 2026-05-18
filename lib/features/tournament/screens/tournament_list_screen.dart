@@ -7,6 +7,7 @@ import '../../../core/controllers/auth_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/models/tournament_model.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class TournamentListScreen extends StatelessWidget {
   const TournamentListScreen({super.key});
@@ -18,22 +19,8 @@ class TournamentListScreen extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          'Tournaments',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-        ),
-        actions: [
-          if (authController.currentUser?.isAdmin ?? false)
-            IconButton(
-              icon: const Icon(Icons.add_rounded),
-              onPressed: () => Get.toNamed(AppRoutes.createTournament),
-            ),
-        ],
+      appBar: const ModernAppBar(
+        title: 'Tournaments',
       ),
       body: SafeArea(
         child: Obx(() {
@@ -41,7 +28,7 @@ class TournamentListScreen extends StatelessWidget {
             return _buildEmptyState(isDark);
           }
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             itemCount: tournamentController.tournaments.length,
             itemBuilder: (context, index) {
               final tournament = tournamentController.tournaments[index];
@@ -50,6 +37,21 @@ class TournamentListScreen extends StatelessWidget {
           );
         }),
       ),
+      floatingActionButton: (authController.currentUser?.isAdmin ?? false)
+          ? FloatingActionButton.extended(
+              onPressed: () => Get.toNamed(AppRoutes.createTournament),
+              backgroundColor: AppTheme.primaryGreen,
+              elevation: 4,
+              icon: const Icon(Icons.add_rounded, color: Colors.white),
+              label: Text(
+                "NEW TOURNAMENT",
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
+            )
+          : null,
     );
   }
 

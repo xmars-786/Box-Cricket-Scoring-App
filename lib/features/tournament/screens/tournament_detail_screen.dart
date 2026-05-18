@@ -18,6 +18,7 @@ import '../../../core/models/team_model.dart';
 import '../../../core/models/user_model.dart';
 import '../../explore/screens/player_profile_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/widgets/modern_app_bar.dart';
 
 class TeamStanding {
   final String teamId;
@@ -160,30 +161,14 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
       return Scaffold(
         backgroundColor:
             isDark ? AppTheme.primaryDark : const Color(0xFFF1F5F9),
-        body: SafeArea(
-          child: NestedScrollView(
+        body: NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
-                SliverAppBar(
+                ModernSliverAppBar(
                   expandedHeight: 280,
                   pinned: true,
-                  stretch: true,
-                  backgroundColor: AppTheme.primaryGreen,
-                  iconTheme: const IconThemeData(color: Colors.white),
+                  title: innerBoxIsScrolled ? tournament.name.toUpperCase() : '',
                   flexibleSpace: FlexibleSpaceBar(
-                    centerTitle: true,
-                    title:
-                        innerBoxIsScrolled
-                            ? Text(
-                              tournament.name.toUpperCase(),
-                              style: GoogleFonts.outfit(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                                letterSpacing: 1,
-                                color: Colors.white,
-                              ),
-                            )
-                            : null,
                     background: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -205,7 +190,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
                             ),
                           ),
                         ),
-                        Positioned(
+                        const Positioned(
                           right: -50,
                           top: -20,
                           child: Opacity(
@@ -264,7 +249,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
                               const SizedBox(height: 8),
                               Row(
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.calendar_today,
                                     size: 12,
                                     color: Colors.white70,
@@ -377,7 +362,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
               ],
             ),
           ),
-        ),
         floatingActionButton:
             (authController.currentUser?.isAdmin ?? false) &&
                     tournamentController.canCreateMatchInTournament(tournament)
@@ -448,7 +432,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
         tournament?.status == 'completed' || tournament?.status == 'closed';
 
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
         if (isClosedOrCompleted) _buildStatusBanner(isDark, tournament!.status),
         if (!(authController.currentUser?.isAdmin ?? false))
@@ -1086,7 +1070,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
       final isAdmin = authController.currentUser?.isAdmin ?? false;
 
       return ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         children: [
           _buildTournamentDashboard(isDark),
           const SizedBox(height: 24),
@@ -1549,7 +1533,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen>
 
   Widget _buildTeamsTab(bool isDark, TournamentModel tournament) {
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       itemCount: tournament.teamNames.length,
       itemBuilder: (context, index) {
         final teamName = tournament.teamNames[index];

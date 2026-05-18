@@ -425,11 +425,12 @@ class MatchController extends GetxController {
   // ─── Fetch Players Once (Future) ───────────────────
   Future<void> fetchPlayers(String matchId) async {
     try {
-      final snapshot = await _firestore
-          .collection(AppConstants.matchesCollection)
-          .doc(matchId)
-          .collection('players')
-          .get();
+      final snapshot =
+          await _firestore
+              .collection(AppConstants.matchesCollection)
+              .doc(matchId)
+              .collection('players')
+              .get();
 
       final newPlayers = <String, PlayerModel>{};
       for (final doc in snapshot.docs) {
@@ -982,7 +983,7 @@ class MatchController extends GetxController {
       final tournamentsSnap = await _firestore.collection('tournaments').get();
       final tournamentNames = {
         for (var doc in tournamentsSnap.docs)
-          doc.id: (doc.data()['name'] as String? ?? 'Tournament')
+          doc.id: (doc.data()['name'] as String? ?? 'Tournament'),
       };
 
       // GROUP BY TOURNAMENT FOR TITLES/NUMBERS
@@ -1000,11 +1001,13 @@ class MatchController extends GetxController {
         final tId = entry.key;
         final tName = tournamentNames[tId] ?? 'Tournament';
         final tMatches = entry.value;
-        
+
         // Sort by creation date to determine order
         tMatches.sort((a, b) {
-          final aDate = (a.data() as Map<String, dynamic>)['created_at'] as Timestamp?;
-          final bDate = (b.data() as Map<String, dynamic>)['created_at'] as Timestamp?;
+          final aDate =
+              (a.data() as Map<String, dynamic>)['created_at'] as Timestamp?;
+          final bDate =
+              (b.data() as Map<String, dynamic>)['created_at'] as Timestamp?;
           return (aDate ?? Timestamp.now()).compareTo(bDate ?? Timestamp.now());
         });
 
@@ -1017,8 +1020,8 @@ class MatchController extends GetxController {
           final expectedNumber = i + 1;
           final expectedTitle = 'Match $expectedNumber';
 
-          if (currentNumber != expectedNumber || 
-              currentTitle != expectedTitle || 
+          if (currentNumber != expectedNumber ||
+              currentTitle != expectedTitle ||
               currentTName != tName) {
             final docRef = doc.reference;
             await docRef.update({
@@ -1032,7 +1035,9 @@ class MatchController extends GetxController {
       }
 
       if (fixedCount > 0) {
-        UIUtils.showSuccess('Successfully fixed $fixedCount match titles and results!');
+        UIUtils.showSuccess(
+          'Successfully fixed $fixedCount match titles and results!',
+        );
         loadCompletedMatches(refresh: true);
       } else {
         UIUtils.showInfo('All match data is already consistent.');
@@ -1053,5 +1058,157 @@ class MatchController extends GetxController {
     _selectedMatchSub?.cancel();
     _playersSub?.cancel();
     super.onClose();
+  }
+
+  // ─── Viewer Count ──────────────────────────────────
+  Future<void> incrementViewerCount(
+    String matchId, {
+    String? userId,
+    String? userName,
+  }) async {
+    try {
+      final matchRef = _firestore
+          .collection(AppConstants.matchesCollection)
+          .doc(matchId);
+
+      // Unique user tracking and presence (Unique Active Count)
+      if (userId != null && userId.isNotEmpty) {
+        await _firestore.runTransaction((transaction) async {
+          final matchDoc = await transaction.get(matchRef);
+          final String status = matchDoc.data()?['status'] ?? 'upcoming';
+          final bool isLive = status == AppConstants.matchLive;
+
+          final viewerRef = matchRef.collection('viewers').doc(userId);
+          final viewerDoc = await transaction.get(viewerRef);
+
+          final bool isNewUser = !viewerDoc.exists;
+          final bool isAlreadyOnline =
+              !isNewUser && (viewerDoc.data()?['is_online'] ?? false);
+
+          // Only track/count if the match is currently live
+          if (isLive) {
+            // Increment active viewer count if transitioning to online
+            if (!isAlreadyOnline) {
+              transaction.update(matchRef, {
+                'viewer_count': FieldValue.increment(1),
+              });
+            }
+
+            if (isNewUser) {
+              // First time watching this live match - increment total unique views
+              transaction.update(matchRef, {
+                'total_views': FieldValue.increment(1),
+              });
+
+              // Record user details and set online
+              transaction.set(viewerRef, {
+                'name': userName ?? 'Anonymous',
+                'viewed_at': FieldValue.serverTimestamp(),
+                'is_online': true,
+              });
+            } else {
+              // Returning user - update timestamp and set online
+              transaction.update(viewerRef, {
+                'viewed_at': FieldValue.serverTimestamp(),
+                'is_online': true,
+              });
+            }
+          }
+        });
+      } else {
+        // Anonymous fallback (optional) - Only if live
+        final matchDoc = await matchRef.get();
+        final String status = matchDoc.data()?['status'] ?? 'upcoming';
+        if (status == AppConstants.matchLive) {
+          await matchRef.update({'viewer_count': FieldValue.increment(1)});
+        }
+      }
+    } catch (e) {
+      print('Error incrementing viewer count: $e');
+    }
+  }
+
+  Future<void> decrementViewerCount(String matchId, {String? userId}) async {
+    try {
+      final matchRef = _firestore
+          .collection(AppConstants.matchesCollection)
+          .doc(matchId);
+
+      if (userId != null && userId.isNotEmpty) {
+        await _firestore.runTransaction((transaction) async {
+          final viewerRef = matchRef.collection('viewers').doc(userId);
+          final viewerDoc = await transaction.get(viewerRef);
+
+          final bool wasOnline =
+              viewerDoc.exists && (viewerDoc.data()?['is_online'] ?? false);
+
+          if (wasOnline) {
+            transaction.update(matchRef, {
+              'viewer_count': FieldValue.increment(-1),
+            });
+            transaction.update(viewerRef, {'is_online': false});
+          }
+        });
+      } else {
+        await matchRef.update({'viewer_count': FieldValue.increment(-1)});
+      }
+    } catch (e) {
+      print('Error decrementing viewer count: $e');
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> getMatchViewersStream(
+    String matchId, {
+    bool onlyOnline = false,
+  }) {
+    var query = _firestore
+        .collection(AppConstants.matchesCollection)
+        .doc(matchId)
+        .collection('viewers')
+        .orderBy('viewed_at', descending: true);
+
+    if (onlyOnline) {
+      // Note: In Firestore, if we order by viewed_at, we can filter by is_online
+      // as long as we have an index.
+      return _firestore
+          .collection(AppConstants.matchesCollection)
+          .doc(matchId)
+          .collection('viewers')
+          .where('is_online', isEqualTo: true)
+          .snapshots()
+          .map(
+            (snapshot) =>
+                snapshot.docs
+                    .map((doc) => {'id': doc.id, ...doc.data()})
+                    .toList(),
+          );
+    }
+
+    return query.snapshots().map(
+      (snapshot) =>
+          snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
+  }
+
+  Future<void> getMatchViewers(String matchId) async {
+    // This could return a list or we could use a listener.
+    // Given the request, we'll probably just fetch once when clicked.
+  }
+
+  Future<List<Map<String, dynamic>>> fetchMatchViewers(String matchId) async {
+    try {
+      final snapshot =
+          await _firestore
+              .collection(AppConstants.matchesCollection)
+              .doc(matchId)
+              .collection('viewers')
+              .orderBy('viewed_at', descending: true)
+              .get();
+
+      return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    } catch (e) {
+      print('Error fetching viewers: $e');
+      return [];
+    }
   }
 }
